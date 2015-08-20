@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <script src='http://cdn.staticfile.org/jquery-jcrop/0.9.12/js/jquery.min.js'></script>
+    <style>
+      body {
+        position: absolute;
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+        overflow: hidden;
+      }
+      #terminal {
+        background-color: #000
+        text: #fff;
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+    <title>Python web terminal</title>
+  </head>
+
+  <body>
+    <div id='terminal'>
+      <p>Welcome to python terminal, please enter your command:</p>
+      <input id='input' type='text'></input>
+      <button id='run'>run!</button>
+    </div>
+    <script type='text/javascript'>
+      $(function(){
+        $("#run").click(function(){
+          var cmdline = $("#input").val()
+          if(cmdline.length==0){
+            alert("Input your command first!")
+            return
+          }
+          var url = "/cmd"
+          var payload = JSON.stringify({cmd:cmdline})
+          $.post(url, payload, function(data){
+            ret = data;
+            var result = ret.result
+            var input = $("#input").detach()
+            var run = $("#run").detach()
+            $("#terminal").append("<p>>>> "+result+"</p>")
+            $("#terminal").append(input)
+            $("#terminal").append(run)
+          })
+        })
+      })
+    </script>
+  </body>
+</html>
