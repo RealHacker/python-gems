@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+
+
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>{{title}} | LootCode OJ</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="{{description}}" />
+    <meta name="application-name" content="LootCode Online Judge"/>
+    <meta name="msapplication-TileColor" content="#da532c" />
+
+    <link href="http://cdn.bootcss.com/bootstrap/3.2.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="http://cdn.bootcss.com/font-awesome/4.2.0/css/font-awesome.min.css" rel="stylesheet">
+    <link href="http://cdn.bootcss.com/bootstrap-table/1.3.0/bootstrap-table.min.css" rel="stylesheet" />
+    <link href="http://cdn.staticfile.org/codemirror/4.7.0/codemirror.min.css" rel="stylesheet" />    
+
+    <style>
+      body {
+        overflow-y: scroll;
+      }
+      a {
+        color: #0088cc;
+      }
+      a:hover {
+        color: #005580;
+      }
+      .form-signin {
+        max-width: 300px;
+        padding: 19px 29px 29px;
+        margin: 0 auto 20px;
+        background-color: #fff;
+        border: 1px solid #e5e5e5;
+        -webkit-border-radius: 5px;
+        -moz-border-radius: 5px;
+        border-radius: 5px;
+        -webkit-box-shadow: 0 1px 2px rgba(0,0,0,.05);
+        -moz-box-shadow: 0 1px 2px rgba(0,0,0,.05);
+        box-shadow: 0 1px 2px rgba(0,0,0,.05);
+      }
+      .block-center {
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
+      }
+      .message {
+         border: 1px solid #e6db55;
+         background-color: #ffffe0;
+         padding: 15px 30px 15px 15px;
+         margin: 20px 0;
+       }
+      .navbar-extra {
+         border-radius: 0px;
+         margin-bottom: 30px;
+      }
+      #chat-link {
+        position: fixed;
+        right: 5px;
+        bottom: 10px;
+        background: #fff;
+        border: 1px solid #e0e0e0;
+        padding: 5px 15px 10px 15px;
+        -webkit-border-radius: 5px 0 0 5px;
+        -moz-border-radius: 5px 0 0 5px;
+        -ms-border-radius: 5px 0 0 5px;
+        -o-border-radius: 5px 0 0 5px;
+        border-radius: 5px 0 0 5px;
+        -webkit-box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        -moz-box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        color: #979faf;
+      }
+      .glyphicon-envelope {
+        text-align: center;
+        line-height: 26px;
+        margin-right: 5px;
+        position: relative;
+      }
+      [ng-cloak] { display: none; }
+      .editor {
+        font-size: 14px !important;
+        border: 1px solid #e0e0e0;
+        height: 600px;
+        margin-left:auto;
+        margin-right:auto;
+        width:980px;
+      }
+      .CodeMirror{
+        height: 600px;
+      }
+      .ac {
+        display: inline-block;
+        height: 16px;
+        width: 16px;
+        background-image: url('/static/images/correct.png');
+        background-repeat: no-repeat;
+      }
+      .notac {
+        display: inline-block;
+        height: 16px;
+        width: 16px;
+        background-image: url('/static/images/question.png');
+        background-repeat: no-repeat;
+      }
+      ul.nav li.dropdown:hover > ul.dropdown-menu {
+        display: block;
+      }
+      #subscribe {
+        background-color: #373737;
+      }
+    </style>
+    
+    <script src="http://cdn.bootcss.com/jquery/1.11.1/jquery.min.js"></script>
+    <script>window.jQuery || document.write('<script src="/static/jquery/jquery-1.11.1.min.js"><\/script>')</script>
+    <script src="http://cdn.bootcss.com/bootstrap-table/1.3.0/bootstrap-table.min.js"></script>
+    <script src="http://cdn.staticfile.org/codemirror/4.7.0/codemirror.min.js"></script>
+    <script src="http://cdn.staticfile.org/codemirror/4.7.0/mode/python/python.js"></script>
+    
+
+  </head>
+
+  <body>
+    <script>
+      if ($('body').css('color') !== 'rgb(51, 51, 51)') {
+        $('head').prepend('<link rel="stylesheet" href="/static/bootstrap/css/bootstrap.min.css">');
+      }
+    </script>
+    <script>$('body').bootstrapTable || document.write('<script src="/static/bootstrap-table-1.3.0/dist/bootstrap-table.min.js"><\/script>')</script>
+    <span id="fa-check" class="fa" style="display:none"></span>
+    <script>
+      if ($('#fa-check').css('fontFamily') !== 'FontAwesome') {
+        $('head').prepend('<link rel="stylesheet" href="/static/font-awesome/css/font-awesome.min.css">');
+      }
+    </script>
+    
+    <div class="navbar navbar-inverse navbar-extra">
+      <div class="container">
+        <div class="navbar-header">
+          <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </button>
+          <a class="navbar-brand" href="/">Lootcode - 撸代码</a>
+        </div>
+        <div class="navbar-collapse collapse">
+          <ul class="nav navbar-nav">
+            <li class="dropdown">
+              <a href="#" class="dropdown-toggle" data-toggle="dropdown" role="button" aria-expanded="false">
+                Problems
+                <span class="caret"></span>
+              </a>
+              <ul class="dropdown-menu" role="menu">
+                <li><a href="/1/">Hello Problem</a></li>                
+                <li><a href="/2/">Fibonacci Numbers</a></li>                
+                <li><a href="/3/">Reverse Linked list</a></li>                
+              </ul>
+            </li>
+          </ul>
+          
+          <ul id="navBar-right" class="nav navbar-nav navbar-right">
+            <li class="dropdown">
+            <a href="#" class="dropdown-toggle" style="margin-bottom:-5px" data-toggle="dropdown">
+              登录
+              <span class="caret"></span>
+            </a>
+            <ul class="dropdown-menu">
+              <li><a href="#">登个毛线</a></li>
+            </ul>
+            </li>
+          </ul>
+          
+          <!--
+          <form class="navbar-form pull-right">
+            <input class="col-md-2" type="text" placeholder="Email">
+            <input class="col-md-2" type="password" placeholder="Password">
+            <button type="submit" class="btn">Sign in</button>
+          </form>
+          -->
+        </div><!--/.navbar-collapse -->  
+      </div>
+    </div> 
+
+
+<div ng-app="app">
+  <div class="container">
+    <div class="row">
+      <div class="col-md-12">
+        <div class="question-title">
+          <h3 style="display:inline">{{title}}</h3>
+          <!--
+          <span class="total-ac text-info">Total Accepted: <strong>41491</strong></span>
+          <span class="total-submit text-info">Total Submissions: <strong>121129</strong></span>
+          <a class="pull-right btn btn-default" href="/problems/integer-to-roman/submissions/">My Submissions</a>
+
+          <div class="pull-right btn-group right-pad">
+            <button type="button" class="btn btn-default active" onclick="window.location.href='/problems/integer-to-roman/'">Question</button>
+            
+              <button type="button" class="btn btn-default" disabled>&nbsp;Solution&nbsp;</button>
+            
+          </div>
+          -->
+        </div>
+        <div class="row">
+          <div class="col-md-12">
+            <div class="question-content">
+              <p>{{description}}</p>
+              <!--         
+                <div>
+                  <div id="tags" class="btn btn-xs btn-warning">Show Tags</div>
+                  <span class="hidebutton">
+                    
+                    <a class="btn btn-xs btn-primary" href="/tag/math/">Math</a>
+                    
+                    <a class="btn btn-xs btn-primary" href="/tag/string/">String</a>
+                    
+                  </span>
+                </div>
+              
+
+
+                <div>
+                  <div id="similar" class="btn btn-xs btn-warning">Show Similar Problems</div>
+                  <span class="hidebutton">
+                    
+                    <a class="btn btn-xs btn-primary" href="/problems/roman-to-integer/"> (E) Roman to Integer</a>
+                    
+                    <a class="btn btn-xs btn-primary" href="/problems/integer-to-english-words/"> (M) Integer to English Words</a>
+                    
+                  </span>
+                </div>
+              -->
+
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    
+    <hr>
+  </div>
+  <div id="container" class='editor'>
+  </div>
+   <div class="action" style='text-align:center'>
+      <button id="button1" class="btn btn-primary btn-pad" type="submit">Submit Solution</button>
+      <div id="submit_message" class="btn text-danger" style="width:300px;display:none"></div>
+    </div>
+  <!--
+  <form class="container" id="ajaxform" method="post" action="/problems/integer-to-roman/submit/" ng-controller="AceCtrl">
+    <input type='hidden' name='csrfmiddlewaretoken' value='fV8iC6jlB3Mr2GYB1AtaGIOZh4DbFFgW' />
+    <input type="hidden" name="question_id" value="12" />
+    <input type="hidden" name="judge_type" value="large" />
+    <input type="hidden" name="data_input" value="" />
+    <div class="row" style="margin-bottom:12px;">
+      <div class="col-md-2">
+        <select class="form-control" name="lang" ng-model="selectedLang" ng-options="lang.text for lang in langs track by lang.value"></select>
+      </div>
+      <button class="btn btn-default" data-toggle="modal" data-target="#confirmReset" type="button"><span class="glyphicon glyphicon-refresh"></span></button>
+      <div class="modal fade" id="confirmReset" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <button type="button" class="close" data-dismiss="modal"><span aria-hidden="true">&times;</span><span class="sr-only">Close</span></button>
+              <h4 class="modal-title" id="myModalLabel">Reset to default code definition</h4>
+            </div>
+            <div class="modal-body">
+              Are you sure you want to reset your code?
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+              <button type="button" class="btn btn-primary" ng-click="resetCode()" data-dismiss="modal">Reset Code</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="col-md-12" ng-init="init(
+          [{'value': 'cpp', 'text': 'C++', 'defaultCode': 'class Solution {\u000D\u000Apublic:\u000D\u000A    string intToRoman(int num) {\u000D\u000A        \u000D\u000A    }\u000D\u000A}\u003B' },{'value': 'java', 'text': 'Java', 'defaultCode': 'public class Solution {\u000D\u000A    public String intToRoman(int num) {\u000D\u000A        \u000D\u000A    }\u000D\u000A}' },{'value': 'python', 'text': 'Python', 'defaultCode': 'class Solution(object):\u000A    def intToRoman(self, num):\u000A        \u0022\u0022\u0022\u000A        :type num: int\u000A        :rtype: str\u000A        \u0022\u0022\u0022\u000A        ' },{'value': 'c', 'text': 'C', 'defaultCode': 'char* intToRoman(int num) {\u000D\u000A    \u000D\u000A}' },{'value': 'csharp', 'text': 'C#', 'defaultCode': 'public class Solution {\u000D\u000A    public string IntToRoman(int num) {\u000D\u000A        \u000D\u000A    }\u000D\u000A}' },{'value': 'javascript', 'text': 'JavaScript', 'defaultCode': '/**\u000D\u000A * @param {number} num\u000D\u000A * @return {string}\u000D\u000A */\u000D\u000Avar intToRoman \u003D function(num) {\u000D\u000A    \u000D\u000A}\u003B' },{'value': 'ruby', 'text': 'Ruby', 'defaultCode': '# @param {Integer} num\u000D\u000A# @return {String}\u000D\u000Adef int_to_roman(num)\u000D\u000A    \u000D\u000Aend' },],
+          '12_197081'
+      );">
+        <div ng-switch on="selectedLang.value">
+        
+          <div ui-ace="aceOption('cpp')" ng-model="code.cpp" ng-switch-when="cpp" class="editor" ng-cloak></div>
+        
+          <div ui-ace="aceOption('java')" ng-model="code.java" ng-switch-when="java" class="editor" ng-cloak></div>
+        
+          <div ui-ace="aceOption('python')" ng-model="code.python" ng-switch-when="python" class="editor" ng-cloak></div>
+        
+          <div ui-ace="aceOption('c')" ng-model="code.c" ng-switch-when="c" class="editor" ng-cloak></div>
+        
+          <div ui-ace="aceOption('csharp')" ng-model="code.csharp" ng-switch-when="csharp" class="editor" ng-cloak></div>
+        
+          <div ui-ace="aceOption('javascript')" ng-model="code.javascript" ng-switch-when="javascript" class="editor" ng-cloak></div>
+        
+          <div ui-ace="aceOption('ruby')" ng-model="code.ruby" ng-switch-when="ruby" class="editor" ng-cloak></div>
+        
+        </div>
+      </div> 
+    </div>
+    <input type="hidden" name="typed_code" />
+   
+  </form>
+  -->
+  <style>
+  .pad-left {
+    padding-left: 10px;
+  }
+  .pad-right {
+    padding-right: 30px;
+  }
+  .text-default {
+    color: #333;
+  }
+  .testcase-label {
+    color: #B25150;
+    position: absolute;
+    left: 0;
+  }
+  .testcase-info, .stdout-info {
+    display: block;
+    font-weight: bold;
+    width: 100%;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: pre;
+    cursor: pointer;
+  }
+  .testcase-row-expand .testcase-info {
+    max-height: 80px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    word-wrap: break-word;
+  }
+  .stdout-info {
+    max-height: 200px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    word-wrap: break-word;
+  }
+  .testcase-table-re, .testcase-table-wa {
+    border: 1px solid rgba(169, 68, 66, 0.5);
+    border-collapse: collapse;
+    border-radius: 4px;
+    border-spacing: 5px;
+    overflow: hidden;
+    padding: 10px 23px 25px 23px;
+    font-family: Menlo,Monaco,Consolas,"Courier New",monospace;
+    font-size: 14px;
+    line-height: 20px;
+    background: transparent;
+    box-shadow: 0 0 4px rgba(169, 68, 66, 0.5);
+  }
+  .testcase-table-re .testcase-table-row {
+    padding: 3px 0px 3px 15em;
+  }
+  .testcase-table-wa .testcase-table-row {
+    padding: 3px 0px 3px 8em;
+  }
+  .testcase-table-wa .testcase-table-row,
+  .testcase-table-re .testcase-table-row {
+    position: relative;
+    padding-top: 10px;
+    border-bottom: 1px solid rgba(228, 154, 152, 0.5);
+    padding-bottom: 14px;
+  }
+  .testcase-row-expand .testcase-info {
+    margin: -5px 0;
+    padding: 5px 0;
+  }
+  .btn-outline {
+    border: 1px solid #cfcfcf;
+    background: 0 0;
+  }
+  .btn-alt {
+    border-radius: 2em;
+    padding: 8px 18px;
+  }
+  #reveal-solution {
+    margin-left: 15px;
+  }
+</style>
+<script>
+  var problem_id = {{_id}};
+  function selectElementText(element) {
+    var select, range;
+    if (window.getSelection && document.createRange) {
+      select = getSelection();
+      range = document.createRange();
+      range.selectNodeContents(element);
+      select.removeAllRanges();
+      select.addRange(range);
+    } else if (document.body.createTextRange) {
+      range = document.body.createTextRange();
+      range.moveToElementText(element);
+      range.select();
+    }
+  }
+
+  function expandTestcaseInfo() {
+    $('.testcase-info').on('click', function (event) {
+      $(this).parent().addClass('testcase-row-expand');
+      selectElementText(this);
+    });
+    $('.stdout-info').on('click', function (event) {
+      $(this).parent().addClass('stdout-row-expand');
+      selectElementText(this);
+    });
+  }
+
+  $(function() {
+    var initialCode = "# Code to solve '{{title}}'\nclass Solution:\n\tdef {{method_name}}(self, {% for i, arg in enumerate(args) %}{% if i!=0 %}, {% end %}{{arg}}{% end %}):\n\t\t# Your code here";
+    var cm = CodeMirror(document.getElementById("container"), {mode: "python", value: initialCode, lineNumbers:true})
+    $("#button1").click(function(){
+      var src = cm.getValue();
+      var payload = JSON.stringify({id:problem_id, src:src})
+      $.post("/", payload, function(data){
+        var ret = $.parseJSON(data);
+
+        if(!ret.pass){
+          $("#submit_message").html(ret.msg);
+          $("#submit_message").addClass("alert-danger");
+          $("#submit_message").show();
+        }else{
+          $("#submit_message").html("Congratulations! You passed.");
+          $("#submit_message").removeClass("alert-info");
+          $("#submit_message").show();
+        }
+      });
+    })
+    $('#reveal-solution').click(function(e) {
+      ga('send', 'event', 'reveal-solution', 'click', 'integer-to-roman');
+    });
+    expandTestcaseInfo();
+  });
+</script>
+
+<!--
+<div ng-controller="PollerCtrl">
+  <div id="result" class="hide container">
+    <hr>
+    <div class="row">
+      <div class="col-md-12">
+        <div class="row">
+          <div class="col-md-12">
+            <h4>Submission Result: <a id="result_state" ng-cloak ng-class="{'blue': 'text-info', 'green': 'text-success', 'red': 'text-danger'}[statusColor]">{[{ statusText }]}</a><span class="animated fadeInLeft" ng-cloak ng-show="statusText !== 'Pending' && statusText !== 'Judging'"><a id="more-details" class="btn-left-space btn btn-outline btn-alt" href="">More Details <i class="fa fa-chevron-right"></i></a></span>
+            </h4>
+            <div ng-show="statusText === 'Accepted'" class="animated fadeInLeft">
+              <div>
+                
+                
+                  <div>
+                    <span>Next challenges: </span>
+                    
+                      <a class="btn btn-xs btn-primary" href="/problems/read-n-characters-given-read4/" onclick="ga('send', 'event', 'next-challenge', 'click');"> (H) Read N Characters Given Read4</a>
+                    
+                      <a class="btn btn-xs btn-primary" href="/problems/substring-with-concatenation-of-all-words/" onclick="ga('send', 'event', 'next-challenge', 'click');"> (E) Substring with Concatenation of All Words</a>
+                    
+                      <a class="btn btn-xs btn-primary" href="/problems/group-shifted-strings/" onclick="ga('send', 'event', 'next-challenge', 'click');"> (E) Group Shifted Strings</a>
+                    
+                  </div>
+                
+              </div>
+
+              <h4><small>Share your acceptance!</small></h4>
+              <div class="addthis_sharing_toolbox" data-title="#LeetCode# I have solved Integer to Roman. Come and join the fun!"></div>
+            </div>
+            
+          </div>
+        </div>
+        <div id="last_executed_testcase_output_row" ng-cloak ng-show="showLastTestCase()">
+          <div class="alert alert-danger col-md-12 testcase-table-re">
+            <div id="runtime_error_row" ng-cloak ng-show="runtimeError" class="testcase-table-row">
+              <span class="pad-left testcase-label">Runtime Error Message:</span>
+              <span id="runtime_error_output" class="text-danger ng-binding testcase-info">{[{ runtimeError }]}</span>
+            </div>
+            <div class="testcase-table-row">
+              <span class="pad-left testcase-label">Last executed input:</span>
+              <span id="last_executed_testcase_output" class="text-danger ng-binding testcase-info">{[{ lastExecutedTestCase }]}</span>
+            </div>
+            <div class="testcase-table-row" ng-cloak ng-show="resultStdOutput">
+              <span class="pad-left testcase-label">Stdout:</span>
+              <span id="runtime_error_stdout" class="ng-binding stdout-info text-default">{[{ resultStdOutput }]}</span>
+            </div>
+          </div>
+        </div>
+        <div id="result_code_output_row" ng-cloak ng-show="resultCodeOutput">
+          <div id="result_code_output" class="alert alert-danger">{[{ resultCodeOutput }]}</div>
+        </div>
+        <div id="wa_output" ng-cloak ng-show="showWaTestCase()">
+          <div class="alert alert-danger col-md-12 testcase-table-wa">
+            <div class="testcase-table-row">
+              <span class="pad-left testcase-label">Input:</span>
+              <span id="result_wa_testcase_input" class="testcase-info text-default">{[{ resultWaTestCaseInput }]}</span>
+            </div>
+            <div class="testcase-table-row">
+              <span class="pad-left testcase-label">Output:</span>
+              <span id="result_wa_testcase_output" class="testcase-info text-danger">{[{ resultWaTestCaseOutput }]}</span>
+            </div>
+            <div class="testcase-table-row">
+              <span class="pad-left testcase-label">Expected:</span>
+              <span id="result_wa_testcase_expected" class="testcase-info text-success">{[{ resultWaTestCaseExpected }]}</span>
+            </div>
+            <div class="testcase-table-row" ng-cloak ng-show="resultStdOutput">
+              <span class="pad-left testcase-label">Stdout:</span>
+              <span id="result_wa_testcase_std_output" class="stdout-info text-default">{[{ resultStdOutput }]}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+-->
+</div>
+
+     <hr> <!-- /container --> 
+    <footer>
+    <p class="text-center">Page Source Copied Shamelessly From <a href="http://www.leetcode.com">LeetCode</a></p>
+    <p class="text-center">Copyright © 2015 Neo</p> 
+    </footer>
+    
+
+<!--    
+<script src="//cdn.bootcss.com/angular.js/1.2.19/angular.min.js"></script>
+<script>window.angular || document.write('<script src="/static/jslib/angular/angular.min.js"><\/script>')</script>
+-->
+
+<script>
+  function csrfSafeMethod(method) {
+    // these HTTP methods do not require CSRF protection
+    return (/^(GET|HEAD|OPTIONS|TRACE)$/.test(method));
+  }
+  function initHints() {
+    var $hints = $('#hints > li');
+    var count = $hints.size();
+    $hints.each(function(index) {
+      $(this).addClass('animated');
+      $(this).addClass('fadeInLeft');
+      if (index != count - 1) {
+        $(this).append('<a class="btn-left-space btn btn-outline btn-alt" href="#">Show More Hint <i class="fa fa-chevron-right"></i></a>');
+        $(this).children().last().click(function(e) {
+          e.preventDefault();
+          showHint($(this), index + 1);
+        });
+      }
+    });
+    $('#hints').before('<p style="display:none"><b>Hint:</b></p>'
+        + '<a class="btn-left-space btn btn-outline btn-alt" style="margin-bottom:15px;margin-top:15px" '
+        + 'href="#">Show Hint <i class="fa fa-chevron-right"></i></a>');
+    $('#hints').prev().click(function(e) {
+      e.preventDefault();
+      initiateShowHint($(this));
+    });
+  }
+  function initiateShowHint(obj) {
+    $(obj).next().children().first().show();
+    $(obj).prev().show();
+    $(obj).hide();
+    ga('send', 'event', 'show-hint', 'click', 'integer-to-roman', 0);
+  }
+  function showHint(obj, counter) {
+    $(obj).parent().next().show();
+    $(obj).hide();
+    ga('send', 'event', 'show-hint', 'click', 'integer-to-roman', counter);
+  }
+
+  $(function() {
+    initHints();
+    $('#yes_questions > span > div').each(function() {
+      $(this).click(function() {
+        var diff = +$(this).attr('value') - 3;
+        $('#company_questions > span > div').each(function() {
+          $(this).attr('value', +$(this).attr('value') + diff);
+        });
+      });
+    });
+    if ($('.spoilers').length > 0) {
+      $('.spoilers').hide();
+      $('.showspoilers').click(function(e) {
+        if ($('.spoilers').is(":visible"))  {
+          $('.spoilers').hide();
+        } else {
+          $('.spoilers').show();
+        }
+        return false;
+      });
+    }
+    $('#tags').click(function(e) {
+      if ('Hide Tags' === $(this).text()) {
+        $(this).text('Show Tags');
+        $('#tags + span').fadeOut("slow");
+        ga('send', 'event', 'hide-tag', 'click', 'integer-to-roman');
+      } else {
+        $(this).text('Hide Tags');
+        $('#tags + span').fadeIn("slow");
+        ga('send', 'event', 'show-tag', 'click', 'integer-to-roman');
+      };
+    });
+    $('#similar').click(function(e) {
+      if ('Hide Similar Problems' === $(this).text()) {
+        $(this).text('Show Similar Problems');
+        $('#similar + span').fadeOut("slow");
+        ga('send', 'event', 'hide-similar', 'click', 'integer-to-roman');
+      } else {
+        $(this).text('Hide Similar Problems');
+        $('#similar + span').fadeIn("slow");
+        ga('send', 'event', 'show-similar', 'click', 'integer-to-roman');
+      };
+    });
+    $('.submit').click(function(e) {
+      $(this).parent().hide();
+      $(this).parent().siblings(".chosen_option").text($(this).text());
+      $('#interviewed_form input[name=option]').attr('value', $(this).attr('value'));
+      if ($(this).attr('follow_up') !== undefined) {
+        $('#interviewed_form input[name=feedback]').attr('value', '');
+      } else {
+        $('#interviewed_form input[name=feedback]').attr('value', 'Thanks for your feedback.');
+      }
+      $($(this).attr('follow_up')).removeClass("hide");
+      $('#interviewed_form').submit();
+      ga('send', 'event', 'interview-survey', 'click', $(this).attr('value'));
+    });
+    $('#interviewed_form').submit(function(e) {
+      e.preventDefault();
+      $.ajaxSetup({
+        crossDomain: false, // obviates need for sameOrigin test
+        beforeSend: function(xhr, settings) {
+          if (!csrfSafeMethod(settings.type)) {
+            xhr.setRequestHeader("X-CSRFToken", $.cookie('csrftoken'));
+          }
+        }
+      });
+      $.ajax({
+        type: "POST",
+        url: this.action,
+        dataType: "json",
+        data: $(this).serialize(),
+        success: function(data) {
+          if (data['result'] === 'success') {
+            $("#interviewed_state").addClass('text-success');
+            $("#interviewed_state").text(data['feedback']);
+          } else if (data['result'] === 'anonymous') {
+            window.location.href = "/accounts/login/?next=/problems/integer-to-roman/";
+          }
+          
+            if (data['result'] === 'no_permission') {
+              window.location.href = "/unpaid/";
+            }
+          
+        },
+        error: function(data) {
+          $("#interviewed_state").addClass('text-danger');
+          $("#interviewed_state").text("Sorry, internal error.");
+        }
+      });
+    });
+
+  });
+
+</script>
+<!-- Go to www.addthis.com/dashboard to customize your tools -->
+    
+  </body>
+</html>

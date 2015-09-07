@@ -6,6 +6,7 @@ class ReverseListProblem(Problem):
     title = "Reverse Linked List"
     description = "Given a linked list, reverse it and return the head node."+\
         "\n"+ LISTNODE_DEF
+    method_name = "reverse_linked_list"
     args = ("head",)
     tests = [
         ([1], [1]),

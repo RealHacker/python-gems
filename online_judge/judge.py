@@ -43,7 +43,10 @@ class Judge(object):
                     return ret, _output
                 else:
                     # Execution is successful, validate if result is correct
-                    correct = self.problem.validate_result(raw_in, _input, raw_out, _output)
+                    try:
+                        correct = self.problem.validate_result(raw_in, _input, raw_out, _output)
+                    except Exception, e:
+                        return False, str(e)
                     if not correct:
                         error_str = "Result incorrect for input %s, your output: %s"%(raw_in, self.problem.get_output_str(_output))
                         return False, error_str

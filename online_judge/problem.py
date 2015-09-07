@@ -48,6 +48,17 @@ class Problem(object):
         problems.sort(key=operator.attrgetter("_id"))
         return problems
 
+    @classmethod
+    def get_problem_by_id(cls, _id):
+        import problemset
+        problem = None
+        for pcls in cls.__subclasses__():
+            if pcls._id == _id:
+                problem = pcls()
+                break
+        return problem
+        
+
 
 class SolutionError(Exception):
     """
