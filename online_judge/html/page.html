@@ -413,7 +413,7 @@
 
   $(function() {
     var initialCode = "# Code to solve '{{title}}'\nclass Solution:\n\tdef {{method_name}}(self, {% for i, arg in enumerate(args) %}{% if i!=0 %}, {% end %}{{arg}}{% end %}):\n\t\t# Your code here";
-    var cm = CodeMirror(document.getElementById("container"), {mode: "python", value: initialCode, lineNumbers:true})
+    var cm = CodeMirror(document.getElementById("container"), {mode: "python", value: initialCode, lineNumbers:true, indentWithTabs:true})
     $("#button1").click(function(){
       var src = cm.getValue();
       var payload = JSON.stringify({id:problem_id, src:src})

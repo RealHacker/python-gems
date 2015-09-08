@@ -66,6 +66,7 @@ class Judge(object):
         if "Solution" not in context or \
             not callable(context['Solution']):
             return False, "Solution class not found in solution code."
+
         solution = context['Solution']()
         try:
             method = getattr(solution, self.problem.method_name)
@@ -76,6 +77,9 @@ class Judge(object):
         if hasattr(signal, "SIGALRM"):
             signal.signal(signal.SIGALRM, timeout_handler)
             signal.alarm(1)
+
+        sb = Sandbox()
+        sb.enter_sandbox()
         try:
             if isinstance(_in, tuple):
                 _out = method(*_in)
@@ -86,6 +90,7 @@ class Judge(object):
         except Exception as e:
             return False, str(e)
         finally:
+            sb.exit_sandbox()
             if hasattr(signal, "alarm"):
                 signal.alarm(0) # cancel the alarm
 
@@ -114,12 +119,17 @@ class Judge(object):
                 e = SolutionError("Solution class not found in solution code.")
                 _exception.append(e)
                 raise e
+            
+            
             solution = context['Solution']()
             try:
                 method = getattr(solution, self.problem.method_name)
             except AttributeError as e:
                 _exception.append(e)
                 raise
+
+            sandbox = Sandbox()
+            sandbox.enter_sandbox()
             try:
                 if isinstance(_in, tuple):
                     _out = method(*_in)
@@ -127,7 +137,11 @@ class Judge(object):
                     _out = method(_in)
             except Exception as e:
                 _exception.append(e)
+                sandbox.exit_sandbox()
                 raise
+            finally:
+                sandbox.exit_sandbox()
+
             _result.append(_out)
             
         t = threading.Thread(target=runner)
@@ -139,10 +153,57 @@ class Judge(object):
             return False, str(_exception[0])
         else:
             return True, _result[0]
-            
+
+
+class SecurityError(Exception):
+    "Raised when the execution violates sandbox restriction"
+
+class SafeModule:
+        def __getattr__(self, attrname):
+            return Sandbox.jail
         
-            
+class Sandbox(object):
+    @staticmethod
+    def jail(*args):
+        raise SecurityError("You are trying to violate sandbox security")
+
+    def __init__(self):
+        self._builtins = {}
+        self.os_module = None
+        self.subprocess_module = None
         
+    def enter_sandbox(self):
+        UNSAFE = [
+            'file',
+            'execfile',
+            'compile',
+            'reload',
+            'eval',
+            'input'
+        ]
+        import __builtin__
+        for func in UNSAFE:
+            self._builtins[func] = __builtin__.__dict__[func]
+            __builtin__.__dict__[func] = self.jail
+
+        import sys
+        import os
+        import subprocess
+        self.os_module = sys.modules['os']
+        self.subprocess_module = sys.modules['subprocess']
+        sys.modules['os'] = SafeModule()
+        sys.modules['subprocess'] = SafeModule()
+
+    def exit_sandbox(self):
+        import __builtin__
+        __builtin__.__dict__.update(self._builtins)
+        import sys
+        sys.modules['os'] = self.os_module
+        sys.modules['subprocess'] = self.subprocess_module
+        
+        
+        
+ 
         
             
         
