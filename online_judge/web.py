@@ -38,6 +38,7 @@ class ProblemHandler(tornado.web.RequestHandler):
             ret = json.dumps({"pass":False, "msg": msg})
         else:
             ret = json.dumps({"pass":True})
+        self.set_header("content-type", "application/json")
         self.write(ret)
 
 

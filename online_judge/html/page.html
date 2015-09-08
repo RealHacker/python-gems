@@ -244,7 +244,7 @@
   </div>
    <div class="action" style='text-align:center'>
       <button id="button1" class="btn btn-primary btn-pad" type="submit">Submit Solution</button>
-      <div id="submit_message" class="btn text-danger" style="width:300px;display:none"></div>
+      <div id="submit_message" class="btn text-danger" style="max-width:540px;display:none"></div>
     </div>
   <!--
   <form class="container" id="ajaxform" method="post" action="/problems/integer-to-roman/submit/" ng-controller="AceCtrl">
@@ -413,13 +413,16 @@
 
   $(function() {
     var initialCode = "# Code to solve '{{title}}'\nclass Solution:\n\tdef {{method_name}}(self, {% for i, arg in enumerate(args) %}{% if i!=0 %}, {% end %}{{arg}}{% end %}):\n\t\t# Your code here";
+    var lastSubmit = localStorage.getItem("lootcode_"+problem_id);
+    if(lastSubmit){
+      initialCode = lastSubmit
+    }
     var cm = CodeMirror(document.getElementById("container"), {mode: "python", value: initialCode, lineNumbers:true, indentWithTabs:true})
     $("#button1").click(function(){
       var src = cm.getValue();
-      var payload = JSON.stringify({id:problem_id, src:src})
-      $.post("/", payload, function(data){
-        var ret = $.parseJSON(data);
-
+      localStorage.setItem("lootcode_"+problem_id, src);
+      var payload = JSON.stringify({id:problem_id, src:src});
+      $.post("/", payload, function(ret){
         if(!ret.pass){
           $("#submit_message").html(ret.msg);
           $("#submit_message").addClass("alert-danger");
@@ -520,7 +523,7 @@
      <hr> <!-- /container --> 
     <footer>
     <p class="text-center">Page Source Copied Shamelessly From <a href="http://www.leetcode.com">LeetCode</a></p>
-    <p class="text-center">Copyright © 2015 Neo</p> 
+    <p class="text-center">Copyleft © 2015 NeoWang</p> 
     </footer>
     
 

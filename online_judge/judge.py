@@ -161,7 +161,8 @@ class SecurityError(Exception):
 class SafeModule:
         def __getattr__(self, attrname):
             return Sandbox.jail
-        
+
+# This sandbox is inspired by this link: https://isisblogs.poly.edu/2012/10/26/escaping-python-sandboxes/        
 class Sandbox(object):
     @staticmethod
     def jail(*args):
