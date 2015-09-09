@@ -4,11 +4,13 @@ for use in problem solution and solver
 """
 
 LISTNODE_DEF = """
-# Definition for singly-linked list.
+<pre>
+# Definition for singly-linked list node.
 # class ListNode:
 #     def __init__(self, x):
 #         self.val = x
 #         self.next = None
+</pre>
 """
 
 class ListNode(object):

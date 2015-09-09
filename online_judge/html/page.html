@@ -153,7 +153,9 @@
               <ul class="dropdown-menu" role="menu">
                 <li><a href="/1/">Hello Problem</a></li>                
                 <li><a href="/2/">Fibonacci Numbers</a></li>                
-                <li><a href="/3/">Reverse Linked list</a></li>                
+                <li><a href="/3/">Reverse Linked list</a></li>  
+                <li><a href="/4/">Sort Numbers</a></li>  
+                <li><a href="/5/">Palindrome Or Not</a></li>             
               </ul>
             </li>
           </ul>
@@ -204,7 +206,9 @@
         <div class="row">
           <div class="col-md-12">
             <div class="question-content">
-              <p>{{description}}</p>
+
+              <p>{% raw description %}</p>
+              {% autoescape xhtml_escape %}
               <!--         
                 <div>
                   <div id="tags" class="btn btn-xs btn-warning">Show Tags</div>
