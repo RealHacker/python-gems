@@ -1,6 +1,8 @@
 """A very very simple go REPL"""
 import subprocess
 import tempfile
+import re
+import operator
 
 src_template = """
 package main
@@ -49,13 +51,45 @@ class Session(object):
         self.statement = ""
         self.current_line = ""
         self.is_complete = True
+
+    def handle_imports(self, stmt):
+        """ Maitain a list of pair [module name, used] in self.imports
+            only used imports are placed in src for execution
+        """
+        # First parse the "import" statement, supporting only
+        # import "abc" and import ("abc" "cde"),
+        # ignoring import _ "abc" and alias for now
+        modules = re.findall(r"\"[^\s\"]+\"", stmt)
         
+        for new_module in modules:
+            if new_module in map(operator.itemgetter(0), self.imports):
+                # not complain about duplicate imports
+                continue
+            self.imports.append([new_module, False])
+
+    # Before rendering source code, filter out the unused imports
+    def update_import_used_states(self, snippets):
+        for pair in self.imports:
+            full_name = pair[0][1:-1]
+            if '\/' in full_name:
+                module_name = full_name.split('\/')[-1]
+            else:
+                module_name = full_name
+            # For the record, packages don't have to be used like 'module.'
+            # But we will deal with the most common case only
+            used = False
+            for snippet in snippets:
+                if module_name+"." in snippet:
+                    used = True
+                    break
+            pair[1] = used
+                    
     def handle_statement(self):
         _target = self.statement.strip()
         if _target.startswith("!"):
             self.handle_command(_target)
         elif _target.startswith("import "):
-            self.imports.append(_target)
+            self.handle_imports(_target)
         elif "var " in _target or "const " in _target:
             # By default, we put all vars and consts in global scope
             # So that funcs can use them
@@ -105,13 +139,24 @@ class Session(object):
             if self.pair_stack[-1] in "[\"'":
                 raise ParsingError("%s have to be closed in the same line"%self.pair_stack[-1])
 
+    def generate_imports(self):
+        # Generate simple import "abc" statements
+        used_imports = filter(operator.itemgetter(1), self.imports)
+        return "\n".join(["import "+name for name, _ in used_imports])
+                         
     def render_src(self):
+        _v = '\n'.join(self.variables)
+        _t = '\n'.join(self.types)
+        _f = '\n'.join(self.funcs)
+        _m = '\n'.join(self.mains)
+        self.update_import_used_states([_v, _t, _f, _m])
+        _i = self.generate_imports()
         return src_template.format(
-            imports = '\n'.join(self.imports),
-            variables = '\n'.join(self.variables),
-            types = '\n'.join(self.types),
-            funcs = '\n'.join(self.funcs),
-            mains = '\n'.join(self.mains)
+            imports = _i,
+            variables = _v,
+            types = _t,
+            funcs = _f,
+            mains = _m
         )
     
     def run(self):
@@ -226,9 +271,4 @@ if __name__== "__main__":
     main()
             
     
-
-
-
-
-
 
