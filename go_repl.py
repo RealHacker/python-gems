@@ -71,10 +71,11 @@ class Session(object):
     def update_import_used_states(self, snippets):
         for pair in self.imports:
             full_name = pair[0][1:-1]
-            if '\/' in full_name:
-                module_name = full_name.split('\/')[-1]
+            if r'/' in full_name:
+                module_name = full_name.split(r'/')[-1]
             else:
                 module_name = full_name
+        
             # For the record, packages don't have to be used like 'module.'
             # But we will deal with the most common case only
             used = False
@@ -83,7 +84,7 @@ class Session(object):
                     used = True
                     break
             pair[1] = used
-                    
+        
     def handle_statement(self):
         _target = self.statement.strip()
         if _target.startswith("!"):
