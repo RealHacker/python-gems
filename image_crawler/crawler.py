@@ -1,8 +1,10 @@
-# This is a asynchronous image crawler written in python
+# This is an asynchronous image crawler written in python
 from tornado.httpclient import AsyncHTTPClient
 from tornado.queues import Queue
 from tornado.locks import Semaphore
 from tornado.ioloop import IOLoop
+from tornado.web import Application, RequestHandler
+from tornado.httpserver import HTTPServer
 from tornado import gen
 
 import random
@@ -13,6 +15,7 @@ import ConfigParser
 import sys
 import time
 import re
+import os.path
 
 # data structures
 links = Queue()
@@ -23,9 +26,19 @@ link_failures = []
 download_failures = []
 img_counter = 0
 
-class LinkExhaustedError(Exception):
-    "Raised when waiting on links times out"
-    
+class WebHandler(RequestHandler):
+    def get(self):
+        response_str = "<h1>Visited links: %d<br>"%len(visited_links)
+        response_str += "Downloaded images: %d</h1>"%len(downloaded_images)
+        response_str += "<hr>"
+        response_str += "<b>VISITED:</b><br>"
+        for link in visited_links:
+            response_str += link+"<br>"
+        response_str += "<b>DOWNLOADED:</b><br>"
+        for img in downloaded_images:
+            response_str += img+"<br>"
+        self.write(response_str)
+        
 class Crawler(object):
     def _init_defaults(self):
         self.start_link = None
@@ -39,17 +52,48 @@ class Crawler(object):
         self.min_width = 200
         self.min_height = 200
         self.img_dir = "E:/tmp/"
-        
-    def __init__(self, start_link=None):
-        self._init_defaults()
+        self.idle_wait_loops = 100
+        self.port = 8888
 
-        # Now load the config file to override defaults
+    def _load_config(self):
         parser = ConfigParser.ConfigParser()
         parser.read("config.ini")
+
+        if parser.has_option("global", "starturl"):
+            starturl = parser.get("global", "starturl")
+            self.start_link = starturl
+            
         if parser.has_option("global", "linkregex"):
             self.link_regex = re.compile(parser.get("global", "linkregex"))
         if parser.has_option("global", "imgregex"):
             self.img_regex = re.compile(parser.get("global", "imgregex"))
+
+        if parser.has_option("global", "politeness"):
+            politeness = parser.getint("global", "politeness")
+            if politeness <=0:
+                print "politeness must be a positive integer"
+                raise SystemExit()
+            self.politeness = politeness
+        if parser.has_option("global", "imgdir"):
+            imgdir = parser.get("global", "imgdir")
+            if not os.path.exists(imgdir) or not os.path.isdir(imgdir):
+                print "invalid imgdir configuration"
+                raise SystemExit()
+            if not imgdir.endswith("/"):
+                imgdir+="/"
+            self.img_dir = imgdir
+
+        if parser.has_option("global", "minwidth"):
+            width = parser.getint("global", "minwidth")
+            self.min_width = width
+        if parser.has_option("global", "minheight"):
+            height = parser.getint("global", "minheight")
+            self.min_height = height
+            
+    def __init__(self, start_link=None):
+        self._init_defaults()
+        # Now load the config file to override defaults
+        self._load_config()
         
         if start_link:
             self.start_link = start_link
@@ -57,15 +101,24 @@ class Crawler(object):
             raise SystemExit("No start link is provided, exiting now...")
         links.put(self.start_link)
         self.semaphore = Semaphore(self.workers_limit)
-        print self.__dict__
 
     @gen.coroutine
     def run(self):
+        # First start an debug server
+        app = Application([(r"/", WebHandler)])
+        server = HTTPServer(app)
+        server.listen(self.port)
+        
+        idle_loops = 0
         while True:
-            try:
-                if imageurls.qsize()==0 and links.qsize()==0:
-                    yield gen.sleep(0.1*self.politeness)
-                elif imageurls.qsize()==0:
+            if imageurls.qsize()==0 and links.qsize()==0:
+                print "Both link and image queues are empty now"
+                idle_loops += 1
+                if idle_loops == self.idle_wait_loops:
+                    break
+            else:
+                idle_loops = 0 # clear the idle loop counter
+                if imageurls.qsize()==0:
                     self.handle_links()
                 elif links.qsize()==0:
                     self.handle_imageurls()
@@ -76,28 +129,23 @@ class Crawler(object):
                         self.handle_imageurls()
                     else:
                         self.handle_links()
-                yield gen.sleep(0.1*self.politeness)
-            except LinkExhaustedError:
-                # Now there is no more links to be crawled
-                break
-            
+            yield gen.sleep(0.1 * self.politeness)
+        # Wait for all link handlers
         links.join()
-        
-        # handling imageurls if not finished
+        # Handling imageurls if generated by the last few links
         while imageurls.qsize():
             self.handle_imageurls()
         imageurls.join()
 
     @gen.coroutine
     def handle_links(self):
-        print "Entering link handler"
         yield self.semaphore.acquire()
-        try:
-            newlink = yield links.get()
-        except gen.TimeoutError:
+        newlink = yield links.get()
+        
+        # Make sure we haven't visited this one
+        if newlink in visited_links:
             self.semaphore.release()
-            raise LinkExhaustedError()
-        print "handling "+newlink
+            raise gen.Return()
         visited_links.add(newlink)
         
         # use async client to fetch this url
@@ -112,7 +160,8 @@ class Crawler(object):
         # release the semaphore
         self.semaphore.release()
         if response.code!=200:
-            link_failures.append(newlink)            
+            link_failures.append(newlink)
+            print "[FAILURE] - %s"%newlink
             raise gen.Return()
 
         # TODO: replace this with a report api
@@ -121,6 +170,7 @@ class Crawler(object):
         # parse url to get the base url
         components = urlparse.urlparse(newlink)
         baseurl = components[0]+"://"+components[1]
+        path = components[2]
         
         # parse the html with bs
         soup = bs4.BeautifulSoup(response.body)
@@ -134,6 +184,10 @@ class Crawler(object):
                 continue
             if href.startswith("/"): # relative
                 href = baseurl+href
+            else:
+                if not path.endswith("/"):
+                    path = path[:path.rfind("/")+1]
+                href = baseurl+"/"+path+href
             if not self.link_regex.match(href):
                 continue
             if href in visited_links:
@@ -161,12 +215,15 @@ class Crawler(object):
 
     @gen.coroutine
     def handle_imageurls(self):
-        print "Entering image handler"
         yield self.semaphore.acquire()
         imgurl = yield imageurls.get()
 
+        if imgurl in downloaded_images:
+            self.semaphore.release()
+            raise gen.Return()
         # mark the image as downloaded
         downloaded_images.add(imgurl)
+        
         # use async client to fetch this url
         client = AsyncHTTPClient()
         tries = 3 # Give it 3 chances before putting it in failure
@@ -180,7 +237,7 @@ class Crawler(object):
         
         if response.code!=200:
             download_failures.append(imgurl)
-            print "[FAILURE] - "+imgurl
+            print "[FAILURE] - %s"%imgurl
             raise gen.Return()
 
         # TODO: replace this with a report api
@@ -226,7 +283,7 @@ def main():
 
     # TODO: replace with reporting api calls
     print "++++++++++++++++++++++++++++"
-    print "%d Links Visited."%len(visited_links)
+    print "%d links visited."%len(visited_links)
     print "%d images downloaded"%len(downloaded_images)
     print "Link failures:", link_failures 
     print "Image download failures:", download_failures
