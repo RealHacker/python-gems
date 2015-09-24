@@ -3,6 +3,10 @@ import mimetools
 import os
 import imp
 import urlparse
+import time
+import shutil
+import json
+
 try:
     import CStringIO as StringIO
 except:
@@ -20,23 +24,138 @@ error_tpl = """
     </html>
 """
 
-class WSGIFileNotFound(Exception):
-    "Raised when wsgi file is not found in file system"
-class WSGIInvalid(Exception):
-    "Raised when wsgi file is not a valid python module, or application doesn't exist"
-    
+listing_tpl = """
+    <html>
+        <head>
+            <title>%s</title>
+        </head>
+        <body>
+            <h1>%s</h1><hr>
+            %s
+        </body>
+    </html>
+"""
+
 class WebServer(object):
+    # configuration is a json file
+    def _read_config(self):
+        try:
+            f = read("config.json", 'r')
+        except:
+            add_error_log("Fail to read config file, exiting now ...")
+            raise SystemExit()
+        try:
+            config = json.load(f)        
+        except ValueError:
+            add_error_log("Fail to parse config file, exiting now...")
+            raise SystemExit()
+        self._address = config['server']
+        self._port = config["port"]
+        self._mode = config['mode']
+
     def __init__(self):
         self._address="127.0.0.1"
         self._port=80
+        self._mode = "thread"
+        
 
     def start(self):
-        address = (self.server_address, self.server_port)
+        address = (self._address, self._port)
         server = SocketServer.ThreadingTCPServer(address, HTTPServerHandler)
         host, port = server.socket.getsockname()[:2]
         self.server_name = socket.getfqdn(host)
         self.server_port = port
         server.serve_forever()
+
+# Exceptions
+class WSGIFileNotFound(Exception):
+    "Raised when wsgi file is not found in file system"
+class WSGIInvalid(Exception):
+    "Raised when wsgi file is not a valid python module, or application doesn't exist"
+class StaticDirNotValid(Exception):
+    "Raised when static dir is not found or is not a directory"
+class DuplicatePath(Exception):
+    "Raised when defining duplicate path in configuration file"
+
+# implementation of handlers, each handler class should implement a handle_request(serv) method
+# For now, static handler only accept GET requests
+class StaticHandler(object):
+    def __init__(self, virtual_path, static_dir):
+        self.virtual_path = virtual_path
+        self.static_dir = static_dir
+        if not os.path.exists(static_dir) or not os.path.isdir(static_dir):
+            raise StaticDirNotValid
+
+    def handle_request(serv):
+        if serv.verb.lower() != "get":
+            serv.send_error_response(400, "Unsupported HTTP Method")
+        # get the relative path
+        parsed = urlparse.urlparse(serv.path)
+        relative_path = parsed.path[len(self.virtual_path):]
+        real_path = os.path.join(self.static_dir, relative_path)
+        if not os.path.exists(real_path):
+            serve.send_error_response("404", "File/directory not found.")
+            return
+        # handle differently for dir and file
+        if os.path.isdir(real_path):          
+            # First send the response line and headers
+            serv.send_response_line(200, "OK") 
+            serv.send_header("Content-Type", "text/html")
+            serv.send_header("Connection", "close")
+           
+            # get the file listing
+            listing = os.listdir(real_path)
+            if not relative_path.endswith("/"):
+                relative_path = relative_path + "/" 
+            # first try index.html
+            index_files = ["index.html", "index.htm"]
+            for index in index_files:
+                if index in listing:
+                    serv.send_response_line(302, "Redirected")
+                    index_path = os.path.join(self.virtual_path, relative_path, index)
+                    serv.send_header("Location", index_path)
+                    serv.end_headers()
+                    return
+            # index.html not present, generate the listing html
+            listing_str = ""
+            if relative_path != "/":
+                # if not root, add parent directory link
+                parent_path = os.path.join(relative_path.split("/")[:-2])
+                href = os.path.join(self.virtual_path, parent_path)
+                line = "<a href='%s'>..</a><br>"%href
+                listing_str += line
+            for item in listing:
+                href = os.path.join(self.virtual_path, relative_path, item)
+                snippet = "<a href='%s'>%s</a><br>"%(href, item)
+                listing_str += snippet
+            display_path = os.path.join(self.virtual_path, relative_path)
+            listing_html = listing_tpl%(display_path, display_path, listing_str)
+            serv.send_header("Content-Length", str(len(listing_html)))
+            serv.end_headers() 
+            serv.wfile.write(listing_html)
+        else:
+            try:
+                f = open(real_path, "rb")
+            except:
+                serv.send_error_response("404", "File not found")
+                return
+            serv.send_response_line(200, "OK") 
+            _, ext = os.path.splitext(real_path)
+            # make a guess based on mimetypes
+            content_type = mimetypes.types_map.get(ext, '')
+            if not content_type:
+                # default to text/html
+                content_type = "text/html"
+            serv.send_header("Content-Type", content_type)
+            # content-length and last-modified
+            stat = os.fstat(f.fileno())            
+            serv.send_header("Content-Length", str(stat.st_size))
+            serv.send_header("Last-Modified", timestamp_to_string(stat.st_mtime))
+            serv.send_header("Connection", "close")
+            serv.end_headers()
+            # now copy the file over
+            shutil.copyfileobj(f, serv.wfile)
+
 
 class WSGIHandler(object):
     def __init__(self, virtual_path, app_path):
@@ -49,7 +168,7 @@ class WSGIHandler(object):
         filename = os.path.split(app_path)[-1]
         modulename, ext = os.path.splitext(filename)
         try:
-            if ext.lower() == ".py":
+            if ext.lower() == ".py" or ext.lower() == ".wsgi":
                 m = imp.load_source(modulename, app_path)
             else:
                 m = imp.load_compiled(modulename, app_path)
@@ -96,7 +215,7 @@ class WSGIHandler(object):
             "wsgi.run_once":    False,
             "wsgi.url_scheme":  "http", 
             "wsgi.multithread": True,
-            "wsgi.multiprocess":False, 
+            "wsgi.multiprocess": False, 
         }
         environ.update(self.get_headers_environ(serv))
         return environ
@@ -110,23 +229,41 @@ class WSGIHandler(object):
             for k, v in response_headers:
                 serv.send_header(k, v)
             serv.end_headers()
-        # response lines
+        # Get response lines
         response_chucks = self.app(environ, start_response)
         for chuck in response_chucks:
             serv.wfile.write(chuck)
-        
 
+# A mux to route HTTP path to correct handler
 class Mux(object):
+    def __init__(self):
+        self.dict = {}
+        self.sortedkeys = []
+
     def register_handler(path, handler):
         # register a virutal path to a handler
-        pass
-    
+        if path in self.dict:
+            raise DuplicatePath()
+        self.dict[path] = handler
+        idx = -1
+        for i, key in enumerate(self.sortedkeys):
+            if path.startswith(key):
+                idx = i
+                break
+        if idx < 0:
+            self.sortedkeys.append(path)
+        else:
+            self.sortedkeys.insert(idx, path)
+
     def get_handler(path):
-        
+        for key in self.sortedkeys:
+            if path.startswith(key):
+                return self.dict[key]
+        return None
         
 class HTTPServerHandler(SocketServer.StreamRequestHandler):
-    def __init__(self):
-        self.mux =
+    def __init__(self, mux):
+        self.mux = mux
         self.error = StringIO.StringIO()
     # handle should read the request from self.rfile
     # and write the response to self.wfile
@@ -148,6 +285,9 @@ class HTTPServerHandler(SocketServer.StreamRequestHandler):
                 self.close_connection = False
             # delegate body handling to mux
             handler = self.mux.get_handler(self.path)
+            if not handler:
+                self.send_error_response("404", "File Not Found")
+                return
             handler.handle_request(self)
             self.wfile.flush()
         except Exception, e:
@@ -187,6 +327,22 @@ class HTTPServerHandler(SocketServer.StreamRequestHandler):
         self.wfile.write(message_body)
         self.wfile.flush()
         
-    
-    
-                 
+# helper functions
+def timestamp_to_string(timestamp=None):
+    """Return the current date and time formatted for a message header."""
+    weekdayname = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    monthname = [None,
+             'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+             'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    if timestamp is None:
+        timestamp = time.time()
+    year, month, day, hh, mm, ss, wd, y, z = time.gmtime(timestamp)
+    s = "%s, %02d %3s %4d %02d:%02d:%02d GMT" % (
+            weekdayname[wd],
+            day, monthname[month], year,
+            hh, mm, ss)
+    return s
+
+def add_error_log(entry):
+    print "[ERROR] - " + entry
+

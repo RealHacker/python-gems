@@ -1,0 +1,21 @@
+{
+	"server":{
+		"ip":"127.0.0.1",
+		"port": 80,
+		"mode": "threads",
+	},
+	"routes":{
+		"/app": {
+			"type": "wsgi",
+			"application": "abc.wsgi"
+		},
+		"/static" :{
+			"type": "static",
+			"dir":  "/home/neo/python"
+		},
+		"/app/static": {
+			"type": "static",
+			"dir":  "/home/neo/gotut"
+		}
+	}
+}
