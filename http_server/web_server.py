@@ -12,6 +12,7 @@ try:
 except:
     import StringIO
 
+# templates
 error_tpl = """
     <html>
         <head>
@@ -35,38 +36,6 @@ listing_tpl = """
         </body>
     </html>
 """
-
-class WebServer(object):
-    # configuration is a json file
-    def _read_config(self):
-        try:
-            f = read("config.json", 'r')
-        except:
-            add_error_log("Fail to read config file, exiting now ...")
-            raise SystemExit()
-        try:
-            config = json.load(f)        
-        except ValueError:
-            add_error_log("Fail to parse config file, exiting now...")
-            raise SystemExit()
-        self._address = config['server']
-        self._port = config["port"]
-        self._mode = config['mode']
-
-    def __init__(self):
-        self._address="127.0.0.1"
-        self._port=80
-        self._mode = "thread"
-        
-
-    def start(self):
-        address = (self._address, self._port)
-        server = SocketServer.ThreadingTCPServer(address, HTTPServerHandler)
-        host, port = server.socket.getsockname()[:2]
-        self.server_name = socket.getfqdn(host)
-        self.server_port = port
-        server.serve_forever()
-
 # Exceptions
 class WSGIFileNotFound(Exception):
     "Raised when wsgi file is not found in file system"
@@ -77,6 +46,99 @@ class StaticDirNotValid(Exception):
 class DuplicatePath(Exception):
     "Raised when defining duplicate path in configuration file"
 
+# A mux to route HTTP path to correct handler
+class Mux(object):
+    def __init__(self):
+        self.dict = {}
+        self.sortedkeys = []
+
+    def register_handler(self, path, handler):
+        # register a virutal path to a handler
+        if path in self.dict:
+            raise DuplicatePath()
+        self.dict[path] = handler
+        idx = -1
+        for i, key in enumerate(self.sortedkeys):
+            if path.startswith(key):
+                idx = i
+                break
+        if idx < 0:
+            self.sortedkeys.append(path)
+        else:
+            self.sortedkeys.insert(idx, path)
+
+    def get_handler(self, path):
+        for key in self.sortedkeys:
+            if path.startswith(key):
+                return self.dict[key]
+        return None
+
+# global mux object
+mux = Mux()
+
+# the main server
+class WebServer(object):
+    # configuration is a json file
+    def _read_config(self):
+        try:
+            f = open("config.json", 'r')
+        except:
+            add_error_log("Fail to read config file, exiting now ...")
+            raise SystemExit()
+        try:
+            config = json.load(f)       
+        except ValueError:
+            add_error_log("Fail to parse config file, exiting now...")
+            raise SystemExit()
+        try:
+            self._address = config['server']['ip']
+            self._port = config['server']["port"]
+            self._mode = config['server']['mode']
+        except KeyError:
+            add_error_log("Missing server basic configuration, using defaults...")
+        self._routes = config['routes']
+
+    def __init__(self):
+        # defaults
+        self._address = "127.0.0.1"
+        self._port = 80
+        self._mode = "thread"
+        # load from config
+        self._read_config()
+        # initialize the mux
+        for path in self._routes:
+            d = self._routes[path]
+            if d['type'] == "static":
+                try:
+                    handler = StaticHandler(path, d['dir'])
+                except StaticDirNotValid:
+                    add_error_log("Static directory in config file not valid, exiting...")
+                    raise SystemExit()
+            elif d['type'] == "wsgi":
+                try:
+                    handler = WSGIHandler(path, d['application'])
+                except WSGIInvalid, WSGIFileNotFound:
+                    handler = None
+                    add_error_log("WSGI file invalid, ignoring path %s"%path)
+            else:
+                add_error_log("Unsupported path definition: %s"%path)
+            try:
+                mux.register_handler(path, handler)
+            except DuplicatePath:
+                add_error_log("Config file contains duplicate path definition, exiting...")
+                raise SystemExit()
+
+    def start(self):
+        address = (self._address, self._port)
+        if self._mode == "thread":
+            server = SocketServer.ThreadingTCPServer(address, HTTPServerHandler)
+        else:
+            server = SocketServer.ForkingTCPServer(address, HTTPServerHandler)
+        host, port = server.socket.getsockname()[:2]
+        self.server_name = socket.getfqdn(host)
+        self.server_port = port
+        server.serve_forever()
+
 # implementation of handlers, each handler class should implement a handle_request(serv) method
 # For now, static handler only accept GET requests
 class StaticHandler(object):
@@ -86,13 +148,13 @@ class StaticHandler(object):
         if not os.path.exists(static_dir) or not os.path.isdir(static_dir):
             raise StaticDirNotValid
 
-    def handle_request(serv):
+    def handle_request(self, serv):
         if serv.verb.lower() != "get":
             serv.send_error_response(400, "Unsupported HTTP Method")
         # get the relative path
         parsed = urlparse.urlparse(serv.path)
         relative_path = parsed.path[len(self.virtual_path):]
-        real_path = os.path.join(self.static_dir, relative_path)
+        real_path = self.static_dir+relative_path
         if not os.path.exists(real_path):
             serve.send_error_response("404", "File/directory not found.")
             return
@@ -112,7 +174,7 @@ class StaticHandler(object):
             for index in index_files:
                 if index in listing:
                     serv.send_response_line(302, "Redirected")
-                    index_path = os.path.join(self.virtual_path, relative_path, index)
+                    index_path = os.path.join(self.virtual_path+relative_path, index)
                     serv.send_header("Location", index_path)
                     serv.end_headers()
                     return
@@ -130,7 +192,7 @@ class StaticHandler(object):
                 listing_str += snippet
             display_path = os.path.join(self.virtual_path, relative_path)
             listing_html = listing_tpl%(display_path, display_path, listing_str)
-            serv.send_header("Content-Length", str(len(listing_html)))
+            serv.send_header("Content-Length", len(listing_html))
             serv.end_headers() 
             serv.wfile.write(listing_html)
         else:
@@ -156,7 +218,6 @@ class StaticHandler(object):
             # now copy the file over
             shutil.copyfileobj(f, serv.wfile)
 
-
 class WSGIHandler(object):
     def __init__(self, virtual_path, app_path):
         self.virtual_path = virtual_path
@@ -172,7 +233,8 @@ class WSGIHandler(object):
                 m = imp.load_source(modulename, app_path)
             else:
                 m = imp.load_compiled(modulename, app_path)
-        except Exception:
+        except Exception as e:
+            add_error_log(str(e))
             raise WSGIInvalid()
         else:
             if not hasattr(m, "application"):
@@ -220,7 +282,7 @@ class WSGIHandler(object):
         environ.update(self.get_headers_environ(serv))
         return environ
 
-    def handle_request(serv):
+    def handle_request(self, serv):
         # environ
         environ = self.prepare_environ(serv)
         # start_response
@@ -234,66 +296,46 @@ class WSGIHandler(object):
         for chuck in response_chucks:
             serv.wfile.write(chuck)
 
-# A mux to route HTTP path to correct handler
-class Mux(object):
-    def __init__(self):
-        self.dict = {}
-        self.sortedkeys = []
-
-    def register_handler(path, handler):
-        # register a virutal path to a handler
-        if path in self.dict:
-            raise DuplicatePath()
-        self.dict[path] = handler
-        idx = -1
-        for i, key in enumerate(self.sortedkeys):
-            if path.startswith(key):
-                idx = i
-                break
-        if idx < 0:
-            self.sortedkeys.append(path)
-        else:
-            self.sortedkeys.insert(idx, path)
-
-    def get_handler(path):
-        for key in self.sortedkeys:
-            if path.startswith(key):
-                return self.dict[key]
-        return None
-        
+# This is the handler entry point, dispatching requests to different handlers with the help of mux
 class HTTPServerHandler(SocketServer.StreamRequestHandler):
-    def __init__(self, mux):
-        self.mux = mux
+    def __init__(self, request, client_addr, server):
+        SocketServer.StreamRequestHandler.__init__(self, request, client_addr, server)
         self.error = StringIO.StringIO()
-    # handle should read the request from self.rfile
+
+    # Should read the request from self.rfile
     # and write the response to self.wfile
-    def handle_one_request():
+    def handle_one_request(self):
         try:
             # read the first line from request
             request_line = self.rfile.readline()
             words = request_line.strip().split()
             if len(words) != 3:
-                send_error_response(400, "Invalid HTTP request")
+                self.send_error_response(400, "Invalid HTTP request")
                 return
             self.verb, self.path, _ = words
+            print self.verb, self.path
             # read the header lines
             self.headers = mimetools.Message(self.rfile, 0)
+            print self.headers
             connection_type = self.headers.get("Connection", "")
             if connection_type == "close":
                 self.close_connection = True
             elif connection_type == "keep-alive":
                 self.close_connection = False
             # delegate body handling to mux
-            handler = self.mux.get_handler(self.path)
+            handler = mux.get_handler(self.path)
             if not handler:
                 self.send_error_response("404", "File Not Found")
                 return
             handler.handle_request(self)
             self.wfile.flush()
+            if self.error.len:
+                add_error_log(self.error.read())
         except Exception, e:
+            add_error_log(str(e))
             self.close_connection = True
                         
-    def handle():
+    def handle(self):
         self.close_connection = True
         self.handle_one_request()
         while not self.close_connection:
@@ -308,7 +350,7 @@ class HTTPServerHandler(SocketServer.StreamRequestHandler):
         self.send_header("Server", "Neo's HTTP Server")
         
     def send_header(self, name, value):
-        self.wfile.write("%s: %r\r\n"%(name, value))
+        self.wfile.write("%s: %s\r\n"%(name, value))
         if name.lower() == "connection":
             if value.lower() == "close":
                 self.close_connection = True
@@ -318,12 +360,12 @@ class HTTPServerHandler(SocketServer.StreamRequestHandler):
     def end_headers(self):
         self.wfile.write("\r\n")
         
-    def send_error_response(code, explanation):
+    def send_error_response(self, code, explanation):
         self.send_response_line(code, explanation)
         self.send_header("Content-type", "text/html")
         self.send_header("Connection", "close")
         self.end_headers()
-        message_body = error_tpl%(code, explanation)
+        message_body = error_tpl%(code, code,  explanation)
         self.wfile.write(message_body)
         self.wfile.flush()
         
@@ -346,3 +388,10 @@ def timestamp_to_string(timestamp=None):
 def add_error_log(entry):
     print "[ERROR] - " + entry
 
+# The driver
+def main():
+    server = WebServer()
+    server.start()
+
+if __name__ == "__main__":
+    main()

@@ -41,10 +41,10 @@ class ProblemHandler(tornado.web.RequestHandler):
         self.set_header("content-type", "application/json")
         self.write(ret)
 
-
-#app = tornado.wsgi.WSGIApplication([
-#    (r"/", MainHandler),
-#])
+import tornado.wsgi
+application = tornado.wsgi.WSGIApplication([
+    (r"/", MainHandler),
+])
 #import sae
 #application = sae.create_wsgi_app(app)
 

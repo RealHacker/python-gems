@@ -1,21 +1,21 @@
 {
 	"server":{
-		"ip":"127.0.0.1",
+		"ip": "127.0.0.1",
 		"port": 80,
-		"mode": "threads",
+		"mode": "thread"
 	},
 	"routes":{
 		"/app": {
 			"type": "wsgi",
-			"application": "abc.wsgi"
+			"application": "D:/Workspace/python-gems/online_judge/web.py"
 		},
 		"/static" :{
 			"type": "static",
-			"dir":  "/home/neo/python"
+			"dir": "D:/Workspace/python-gems/"
 		},
 		"/app/static": {
 			"type": "static",
-			"dir":  "/home/neo/gotut"
+			"dir":  "D:/Workspace/python-gems/online_judge/"
 		}
 	}
 }
