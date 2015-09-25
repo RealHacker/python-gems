@@ -1,11 +1,13 @@
 import SocketServer, socket
-import mimetools
+import mimetools, mimetypes
 import os
 import imp
 import urlparse
 import time
 import shutil
 import json
+import sys
+import urllib
 
 try:
     import CStringIO as StringIO
@@ -25,7 +27,7 @@ error_tpl = """
     </html>
 """
 
-listing_tpl = """
+listing_tpl = u"""
     <html>
         <head>
             <title>%s</title>
@@ -152,19 +154,19 @@ class StaticHandler(object):
         if serv.verb.lower() != "get":
             serv.send_error_response(400, "Unsupported HTTP Method")
         # get the relative path
+
         parsed = urlparse.urlparse(serv.path)
         relative_path = parsed.path[len(self.virtual_path):]
-        real_path = self.static_dir+relative_path
+        relative_path = urllib.unquote(relative_path)
+        relative_path = relative_path.strip()
+        real_path = os.path.join(self.static_dir, relative_path)
+        print real_path
+       
         if not os.path.exists(real_path):
-            serve.send_error_response("404", "File/directory not found.")
+            serv.send_error_response(404, "File/directory not found.")
             return
         # handle differently for dir and file
-        if os.path.isdir(real_path):          
-            # First send the response line and headers
-            serv.send_response_line(200, "OK") 
-            serv.send_header("Content-Type", "text/html")
-            serv.send_header("Connection", "close")
-           
+        if os.path.isdir(real_path):                      
             # get the file listing
             listing = os.listdir(real_path)
             if not relative_path.endswith("/"):
@@ -178,20 +180,26 @@ class StaticHandler(object):
                     serv.send_header("Location", index_path)
                     serv.end_headers()
                     return
+            # Send the response line and headers
+            serv.send_response_line(200, "OK") 
+            serv.send_header("Content-Type", "text/html;charset=%s"%sys.getfilesystemencoding())
+            serv.send_header("Connection", "close")
             # index.html not present, generate the listing html
             listing_str = ""
             if relative_path != "/":
                 # if not root, add parent directory link
-                parent_path = os.path.join(relative_path.split("/")[:-2])
-                href = os.path.join(self.virtual_path, parent_path)
-                line = "<a href='%s'>..</a><br>"%href
+                parent_path = "/".join(relative_path.split("/")[:-2])
+                href = os.path.normpath(self.virtual_path + parent_path)
+                href = urllib.quote(href)
+                line = u"<a href='%s'>..</a><br>"%href
                 listing_str += line
             for item in listing:
-                href = os.path.join(self.virtual_path, relative_path, item)
+                href = os.path.join(self.virtual_path+relative_path, item)
                 snippet = "<a href='%s'>%s</a><br>"%(href, item)
                 listing_str += snippet
-            display_path = os.path.join(self.virtual_path, relative_path)
+            display_path = self.virtual_path+relative_path
             listing_html = listing_tpl%(display_path, display_path, listing_str)
+            listing_html = listing_html.encode("utf-8")
             serv.send_header("Content-Length", len(listing_html))
             serv.end_headers() 
             serv.wfile.write(listing_html)
@@ -199,7 +207,7 @@ class StaticHandler(object):
             try:
                 f = open(real_path, "rb")
             except:
-                serv.send_error_response("404", "File not found")
+                serv.send_error_response(404, "File not found")
                 return
             serv.send_response_line(200, "OK") 
             _, ext = os.path.splitext(real_path)
@@ -227,20 +235,25 @@ class WSGIHandler(object):
         if not os.path.exists(app_path):
             raise WSGIFileNotFound()
         filename = os.path.split(app_path)[-1]
-        modulename, ext = os.path.splitext(filename)
+        modulename, ext = os.path.splitext(app_path)
+        print modulename
         try:
-            if ext.lower() == ".py" or ext.lower() == ".wsgi":
-                m = imp.load_source(modulename, app_path)
-            else:
-                m = imp.load_compiled(modulename, app_path)
+            # if ext.lower() == ".py" or ext.lower() == ".wsgi":
+            #     m = imp.load_source(modulename, app_path)
+            # else:
+            #     m = imp.load_compiled(modulename, app_path)
+            __import__(modulename)
         except Exception as e:
             add_error_log(str(e))
             raise WSGIInvalid()
         else:
+            m = sys.modules[modulename]
             if not hasattr(m, "application"):
+                add_error_log("Wsgi application not found")
                 raise WSGIInvalid()
             self.app = m.application
             if not callable(self.app):
+                add_error_log("Wsgi application not callable")
                 raise WSGIInvalid()
             
     def get_headers_environ(self, serv):
@@ -266,8 +279,8 @@ class WSGIHandler(object):
             "SCRIPT_NAME":      self.virtual_path,
             "PATH_INFO":        realpath,
             "QUERY_STRING":     parsed.query,
-            "CONTENT_TYPE":     serve.header.get("Content-Type", ""),
-            "CONTENT_LENGTH":   serve.header.get("Content-Length", ""),
+            "CONTENT_TYPE":     serv.headers.get("Content-Type", ""),
+            "CONTENT_LENGTH":   serv.headers.get("Content-Length", ""),
             "SERVER_NAME":      self.server.server_name,
             "SERVER_PORT":      self.server.server_port,
             "SERVER_PROTOCOL":  "HTTP/1.1",
@@ -299,41 +312,42 @@ class WSGIHandler(object):
 # This is the handler entry point, dispatching requests to different handlers with the help of mux
 class HTTPServerHandler(SocketServer.StreamRequestHandler):
     def __init__(self, request, client_addr, server):
-        SocketServer.StreamRequestHandler.__init__(self, request, client_addr, server)
         self.error = StringIO.StringIO()
-
+        SocketServer.StreamRequestHandler.__init__(self, request, client_addr, server)
+        
     # Should read the request from self.rfile
     # and write the response to self.wfile
     def handle_one_request(self):
-        try:
-            # read the first line from request
-            request_line = self.rfile.readline()
-            words = request_line.strip().split()
-            if len(words) != 3:
-                self.send_error_response(400, "Invalid HTTP request")
-                return
-            self.verb, self.path, _ = words
-            print self.verb, self.path
-            # read the header lines
-            self.headers = mimetools.Message(self.rfile, 0)
-            print self.headers
-            connection_type = self.headers.get("Connection", "")
-            if connection_type == "close":
-                self.close_connection = True
-            elif connection_type == "keep-alive":
-                self.close_connection = False
-            # delegate body handling to mux
-            handler = mux.get_handler(self.path)
-            if not handler:
-                self.send_error_response("404", "File Not Found")
-                return
-            handler.handle_request(self)
-            self.wfile.flush()
-            if self.error.len:
-                add_error_log(self.error.read())
-        except Exception, e:
-            add_error_log(str(e))
+        # try:
+        # read the first line from request
+        request_line = self.rfile.readline()
+        words = request_line.strip().split()
+        if len(words) != 3:
+            self.send_error_response(400, "Invalid HTTP request")
+            return
+        self.verb, self.path, _ = words
+        print self.verb, self.path
+        # read the header lines
+        self.headers = mimetools.Message(self.rfile, 0)
+        print self.headers
+        connection_type = self.headers.get("Connection", "")
+        if connection_type == "close":
             self.close_connection = True
+        elif connection_type == "keep-alive":
+            self.close_connection = False
+        # delegate body handling to mux
+        handler = mux.get_handler(self.path)
+        if not handler:
+            self.send_error_response(404, "File Not Found")
+            return
+        handler.handle_request(self)
+        if not self.wfile.closed:
+            self.wfile.flush()
+        if self.error.len:
+            add_error_log(self.error.read())
+        # except Exception, e:
+        #     add_error_log(str(e))
+        #     self.close_connection = True
                         
     def handle(self):
         self.close_connection = True
@@ -367,7 +381,8 @@ class HTTPServerHandler(SocketServer.StreamRequestHandler):
         self.end_headers()
         message_body = error_tpl%(code, code,  explanation)
         self.wfile.write(message_body)
-        self.wfile.flush()
+        if not self.wfile.closed:
+            self.wfile.flush()
         
 # helper functions
 def timestamp_to_string(timestamp=None):
