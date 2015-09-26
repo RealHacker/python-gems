@@ -1,21 +1,21 @@
 {
 	"server":{
 		"ip": "127.0.0.1",
-		"port": 8002,
+		"port": 8000,
 		"mode": "thread"
 	},
 	"routes":{
 		"/app": {
 			"type": "wsgi",
-			"application": "/home/neo/python/python-gems/online_judge/web.py"
-		},
-		"/static" :{
-			"type": "static",
-			"dir": "/home/neo/Desktop/"
+			"application": "D:/Workspace/QR/Vad/Vad/wsgi.py"
 		},
 		"/app/static": {
 			"type": "static",
-			"dir":  "/home/neo/python/python-gems/online_judge"
+			"dir":  "D:/workspace/python-gems/"
+		}, 
+		"/app/proxy": {
+			"type": "proxy",
+			"proxyurl": "http://www.qq.com/"
 		}
 	}
 }
