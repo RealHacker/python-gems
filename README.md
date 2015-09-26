@@ -33,3 +33,7 @@
 - web_terminal - *A remote console from a web browser*
 
 - online_judge - *A OJ system like leetcode, with a small problemset, supporting only python solutions*
+
+- image_crawler - *A web image crawler written based on Tornado*
+
+- http_server - *A basic http server supporting static files/wsgi apps/proxying*
