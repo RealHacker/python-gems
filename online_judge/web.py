@@ -43,7 +43,7 @@ class ProblemHandler(tornado.web.RequestHandler):
 
 import tornado.wsgi
 application = tornado.wsgi.WSGIApplication([
-    (r"/", MainHandler),
+    (r"/", ProblemHandler),
 ])
 #import sae
 #application = sae.create_wsgi_app(app)
