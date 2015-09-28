@@ -35,4 +35,4 @@ After setting config.json, just run:
 
     python web_server.py
 
-*Note: this is just a coding practice, for learning about HTTP/wsgi, so don't using it for production.*
+*Note: this is just a coding practice, for learning about HTTP/wsgi, so don't consider using it for production.*
