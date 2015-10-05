@@ -18,14 +18,14 @@ tpl_404 ="""
 """
 def mock_server_error(msg):
     json_msg = json.dumps({"msg": msg})
-    return HttpResponse(json_msg, status_code=500, content_type="application/json")
+    return HttpResponse(json_msg, status=500, content_type="application/json")
 
 def mock_server_success():
-    return HttpResponse("OK", status_code=200)
+    return HttpResponse("OK", status=200)
 
 def mock_server_404(msg):
     page_404 = tpl_404%msg
-    return HttpResponse(page_404, status_code=404)
+    return HttpResponse(page_404, status=404)
 
 def index(request):
     """ The main page for application """
@@ -118,7 +118,7 @@ def proxy(request):
 
 def urls(request):
     if request.method=="GET":
-        urls = URL.objects.values()
+        urls = list(URL.objects.values())
         urls_json = json.dumps(urls)
         return HttpResponse(urls_json, content_type="application/json")
     elif request.method=="POST":
