@@ -155,7 +155,7 @@ def conditions(request):
     if request.method=="GET":
         if "urlid" not in request.GET:
             return mock_server_error("Lacking required field: urlid")
-        conditions = Condition.objects.filter(url_id=int(request.GET['urlid'])).values()
+        conditions = list(Condition.objects.filter(url_id=int(request.GET['urlid'])).values())
         json_conditions = json.dumps(conditions)
         return HttpResponse(json_conditions, content_type="application/json")
     elif request.method=="POST":
@@ -261,7 +261,7 @@ def urlhandler(request):
                 break
         elif url.pattern.endswith("/"):
             mo = re.match(url.pattern[:-1], path)
-            if mo.group(0)==path:
+            if mo and mo.group(0)==path:
                 found = True
                 break
     if not found:

@@ -6,22 +6,169 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Mock Server</title>
         <!-- CSS -->
-        <link href="http://cdn.staticfile.org/twitter-bootstrap/2.3.2/css/bootstrap.min.css" rel="stylesheet"/>
-        <link href="http://cdn.staticfile.org/twitter-bootstrap/2.3.2/css/bootstrap-responsive.min.css" rel="stylesheet"/>
+        <link href="http://cdn.staticfile.org/twitter-bootstrap/3.3.1/css/bootstrap.min.css" rel="stylesheet"/>
+        <link href="http://cdn.staticfile.org/twitter-bootstrap/3.3.1/css/bootstrap-responsive.min.css" rel="stylesheet"/>
         <link href="http://cdn.staticfile.org/font-awesome/3.2.1/css/font-awesome.min.css" rel="stylesheet"/>
+        <style>
+            body {
+                background-color: #e2e2e2;
+            }
+            #wrapper {
+                text-align: center;
+                margin-top:10px;
+                margin-bottom:10px;
+            }
+            #content {
+                background-color: #fff;
+                border-radius: 3px;
+                box-shadow: 0px 2px 3px rgba(0, 0, 0, 0.1);
+                border-bottom: 1px solid #e2e2e2;
+                width: 970px;
+                margin: 0px auto 0px auto
+            }
+        </style>
 </head>
 <body>
+    <div id="wrapper">
         <div id="content"></div> 
+        <div id='modal_container'></div>
+    </div>
         <script type="text/javascript" src="http://cdn.staticfile.org/jquery/2.1.1-rc2/jquery.min.js"></script>
         <script type="text/javascript" src="http://cdn.staticfile.org/react/0.12.0-rc1/react.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-core/5.8.23/browser.min.js"></script>
         <script type="text/javascript" src="http://cdn.staticfile.org/twitter-bootstrap/3.3.1/js/bootstrap.min.js"></script>
+        
         <script type="text/babel">
                 var MockAPI = {
                         urls: "/mock/urls/",
                         conditions: "/mock/conditions/",
-                        response: "/mock/responses/"
+                        response: "/mock/responses/",
+                        states:"/mock/states/"
                 }
+                var globalStates = [];
+                function loadGlobalStates(){
+                    var url = MockAPI.states;
+                    $.get(url, null, function(data){
+                        for(var i=0;i<data.length;i++){
+                            globalStates.push(data[i].name);
+                        }
+                    })
+                }
+                var ConditionDialog = React.createClass({
+                    clearInput: function(){
+
+                    },
+                    show: function(urlid, url_component){
+                        this.urlid = urlid;
+                        this.parent = url_component;
+                        this.clearInput();
+                        $("#condition_modal").modal("show");
+                    },
+                    methodChanged: function(event){
+                        var value = event.target.value;
+                        var querySection = $(this.getDOMNode()).find("#query_section");
+                        if(value=="GET"){
+                            querySection.show();
+                        } else {
+                            querySection.hide();
+                        }
+                    },
+                    addStateFilter: function(){
+                        var stateOptions = "";
+                        for(var i=0;i<globalStates.length;i++){
+                            var state = globalStates[i];
+                            stateOptions += "<option value='"+state+"'>"+state+"</option>";
+                        }
+                        var filter = "<select>"+stateOptions+"</select>";
+                        var snippet = "<div class='filter-row' <label>State:</label><select>"+stateOptions+"</select><label>Value:</label><input type='text'></input>";
+                        $(this.getDOMNode()).find("#state_filters").append(snippet);
+                    },
+                    committed: function(){
+                        var newCondition = {
+                            urlid: this.urlid,
+                        }
+                        newCondition.method = $("#section-method input:checked").val();
+                        var state_filters = $("#state_filters .filter-row")
+                        var query_str=null;
+                        if(state_filters.length>0){
+                            var states = [];
+                            for(var i = 0;i<state_filters.length;i++){
+                                var state = state_filters[i].find("option:selected").val();
+                                var value = state_filters[i].find("input").val();
+                                if(value=="") {alert("Empty value for some state");}
+                                states.append(state+"="+value)
+                            }
+                            newCondition.state_filter = states.join(",");
+                        } else {
+                            newCondition.state_filter = null;
+                        }
+                        if(newCondition.method=="GET"){
+                            query_str = $("input#query_filter").val();
+                        }
+                        if(query_str&&query_str.length>0){
+                            newCondition.query_filter = query_str;
+                        }
+                        $.post(MockAPI.conditions, JSON.stringify(newCondition), function(){
+                            $("#condition_modal").modal("hide");
+                        });
+                        this.parent.conditionAdded(newCondition);
+                    },
+                    render: function(){
+                            return (
+                                    <div id='condition_modal' className={"modal fade"}>
+                                      <div className={"modal-dialog"}>
+                                        <div className={"modal-content"}>
+                                          <div className={"modal-header"}>
+                                            <button type="button" className={"close"} data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                                            <h4 className={"modal-title"}>Add Condition</h4>
+                                          </div>
+                                          <div className={"modal-body"}>                                            
+                                            <div id='section-method' className='row'>
+                                                <div className="radio col-md-3">
+                                                  <label>
+                                                    <input type="radio" name="method" value="GET" onChange={this.methodChanged}/> 
+                                                    GET
+                                                  </label>
+                                                </div>
+                                                <div className="radio col-md-3">
+                                                  <label>
+                                                    <input type="radio" name="method" value="POST" onChange={this.methodChanged}/> 
+                                                    POST
+                                                  </label>
+                                                </div>
+                                                <div className="radio col-md-3">
+                                                  <label>
+                                                    <input type="radio" name="method" value="PUT" onChange={this.methodChanged}/> 
+                                                    PUT
+                                                  </label>
+                                                </div>
+                                                <div className="radio col-md-3">
+                                                  <label>
+                                                    <input type="radio" name="method" value="DELETE" onChange={this.methodChanged}/> 
+                                                    DELETE
+                                                  </label>
+                                                </div>
+                                            </div>
+                                            <div className="row">
+                                                <label>Add State Filter:</label>
+                                                <button class='btn btn-mini' onClick={this.addStateFilter}>Add</button>
+                                                <div id="state_filters"></div>
+                                            </div>
+                                            <div className="row" id="query_section">
+                                                <label>Set query string:</label><br/>
+                                                <input type='text' id="query_filter"></input>
+                                            </div>
+                                          </div>
+                                          <div className={"modal-footer"}>
+                                            <button type="button" className={"btn btn-default"} data-dismiss="modal">Close</button>
+                                            <button type="button" className={"btn btn-primary"} onClick={this.committed}>Save</button>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                            )
+                    }
+                });
                 var URLCondition = React.createClass({
                         handleDelete: function(){
                                 this.props.onDelete(this.props.conditionid);
@@ -45,7 +192,9 @@
                                 return {loaded: false, data: []}
                         }, 
                         loadData: function(){
-
+                            $.get(MockAPI.conditions, {urlid: this.props.urlid}, function(data){
+                                this.setState({loaded: true, data: data});
+                            }.bind(this));
                         },
                         conditionDeleted: function(conditionid){
                                 for(var i=0;i<this.state.data.length;i++){
@@ -57,6 +206,7 @@
                                 this.forceUpdate()
                         },
                         render: function(){
+
                                 if(!this.state.loaded && this.props.show){
                                         this.loadData();
                                         return (<div class='loading'>Loading Conditions...</div>)
@@ -84,34 +234,43 @@
                         showConditions: function(){
                                 this.setState({showConditions:true});
                         },
+                        newCondition: function(){
+                            // Show a new conditional modal
+                            conditionModal.show(this.props.urlid, this);
+                        },
+                        conditionAdded: function(condition){
+                            var data = this.refs.conditions.state.data;
+                            data.push(condition);
+                            this.refs.conditions.forceUpdate();
+                        },
                         render: function(){
                                 return (
                                         <div>
-                                        <div class="row">
-                                                <div class='col-md-2'><b>{this.props.name}</b></div>
-                                                <div class='col-md-8'>{this.props.pattern}</div>
-                                                <div class='col-md-2'>
-                                                        <a class='icon-plus'/>
-                                                        <a class="icon-caret" onClick={this.showConditions}/>
-                                                </div>
-                                        </div>
-                                        <URLConditionList urlid={this.props.id} show={this.state.showConditions}/>
+                                            <div className="row">
+                                                    <div className='col-md-2 col-lg-2'><b>{this.props.name}</b></div>
+                                                    <div className='col-md-8 col-lg-8'>{this.props.pattern}</div>
+                                                    <div className='col-md-2 col-lg-2'>
+                                                            <a className='icon-plus' onClick={this.newCondition}/>
+                                                            <a className="icon-chevron-right" onClick={this.showConditions}/>
+                                                    </div>
+                                            </div>
+                                            <URLConditionList urlid={this.props.urlid} show={this.state.showConditions} ref={"conditions"}/>
                                         </div>
                                 );
                         }
                 });
                 var URLList = React.createClass({
                         getInitialState: function() {
-                                return {data: []};
+                            return {data: []};
                         },
                         componentDidMount: function(){
-                                $.get(MockAPI.urls, function(data){
-                                        this.setState({data:data})
-                                }.bind(this));
+                            $.get(MockAPI.urls, function(data){
+                                    this.setState({data:data})
+                            }.bind(this));
                         },
                         render: function(){
                                 var items = this.state.data.map(function(url){
-                                        return (<URLItem name={url.name} pattern={url.pattern}/>)
+                                        return (<URLItem urlid={url.id} name={url.name} pattern={url.pattern}/>)
                                 });
                                 return (
                                         <div id="urls">
@@ -146,8 +305,8 @@
                                                 <h4 className={"modal-title"}>Create URL</h4>
                                               </div>
                                               <div className={"modal-body"}>
-                                                <input type='text' name='name' ref={'name'}/>
-                                                <input type='text' name='urlpattern' ref={'pattern'}/>
+                                                <label>NAME:</label><input type='text' name='name' ref={'name'}/><br/>
+                                                <label>URL PATTERN:</label><input type='text' name='urlpattern' ref={'pattern'}/>
                                               </div>
                                               <div className={"modal-footer"}>
                                                 <button type="button" className={"btn btn-default"} data-dismiss="modal">Close</button>
@@ -159,6 +318,7 @@
                                 )
                         }
                 });
+
                 var MockServerUI = React.createClass({
                         addNewURL: function(name, pattern){
                                 var urlmodal = this.refs.urlmodal;
@@ -175,16 +335,15 @@
                                         "text-align": "right"
                                 };
                                 var fixedStyle = {
-                                        position:"fixed",
-
+                                       display: "none"
                                 };
                                 return (
                                 <div>
-                                        <div style={headerStyle}><button onClick={this.showModal}>ADD URL</button></div>
-                                        <URLList ref={'urllist'}/>
-                                        <div style={fixedStyle}>
-                                                <URLDialog onCommit={this.addNewURL} ref={'urlmodal'}/>
+                                        <div style={headerStyle}>
+                                            <button onClick={this.showModal}><i className='icon-add'/>&nbsp;ADD URL</button>
                                         </div>
+                                        <URLList ref={'urllist'}/>
+                                        <URLDialog onCommit={this.addNewURL} ref={'urlmodal'}/>
                                 </div>
                                 )
                         }
@@ -193,6 +352,9 @@
                         <MockServerUI/>,
                         document.getElementById('content')
                 );
+                
+                var conditionModal = React.render(<ConditionDialog/>, document.getElementById('modal_container'));
+                
         </script>
 </body>
 </html>
