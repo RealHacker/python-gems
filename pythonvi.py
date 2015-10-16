@@ -42,10 +42,24 @@ class EditOp(object):
         y, x = self.pos
         if self.object_type == "char":
             if self.edit_type == "delete":
-                _buffer[y] = _buffer[y][:x]+_buffer[y][x+self.cnt:]
+                if "\n" in self.value:
+                    segments = self.value.split("\n")
+                    if y<len(_buffer)-1:
+                        _buffer[y] = _buffer[y][:x]+_buffer[y+1][len(segments[1]):]
+                        del _buffer[y+1]
+                    else:
+                        _buffer[y] = _buffer[y][:x]
+                else:
+                    _buffer[y] = _buffer[y][:x]+_buffer[y][x+self.cnt:]
             elif self.edit_type == "insert":
-                _buffer[y] = _buffer[y][:x] + self.value + _buffer[y][x:]
+                if "\n" in self.value:
+                    segments = self.value.split("\n")
+                    _buffer[y] = _buffer[y]+segments[0]
+                    _buffer.insert(y+1, segments[1])
+                else:
+                    _buffer[y] = _buffer[y][:x] + self.value + _buffer[y][x:]
             else:
+                # TODO: need to handle carriage return
                 _buffer[y] = _buffer[y][:x] + self.replacement + _buffer[y][x+len(self.value):]
         else: #line
             if self.edit_type == "delete":
@@ -125,9 +139,10 @@ class Editor(object):
         self.maxy, self.maxx = stdscr.getmaxyx()
         self.topline = 0
         self.line_heights = []
-        self.mode = "editing"
+        self.mode = "command"
         self.command_editing = False
         self.pos = (0,0) # line and column of buffer
+        self.partial = ""
 
         self.refresh()
         while True:
@@ -142,15 +157,62 @@ class Editor(object):
         self.editop = EditOp(self, etype, "char", pos)
 
     def do_command(self, ch):
-        if curses.ascii.isprint(ch):
+        if self.mode == "editing":
+            self.handle_editing(ch)
+        else:
+            if self.command_editing:
+                self.handle_editing_command(ch)
+            else:
+                self.handle_command(ch)
+        return True
+
+    def reindent_line(self, lineno):
+        pass
+
+    def handle_editing_command(self, ch):
+        pass
+
+    def handle_command(self, ch):
+        self.partial += chr(ch)
+        if self.partial=="i":
+            self.mode = "editing"
+            self.partial = ""
+            self.refresh_command_line()
+
+    def handle_editing(self, ch):
+        y, x = self.pos
+        if curses.ascii.isprint(ch) or ch==ord("\n"):
             if not self.editop or not self.editop.edit_type == "insert":
                 self.start_new_char_edit("insert", self.pos)
             self.editop.append_edit(ch)
-            y, x = self.pos
-            self.buffer[y] = self.buffer[y][:x]+chr(ch)+self.buffer[y][x:]
+            if chr(ch)=="\n":
+                line = self.buffer[y]
+                self.buffer[y] = line[:x]
+                self.buffer.insert(y+1, line[x:])
+                self.pos = y+1, 0
+                # now adjust the indentation if needed
+                self.reindent_line(y+1)
+                self.start_new_char_edit("insert", self.pos)
+            else:
+                self.buffer[y] = self.buffer[y][:x]+chr(ch)+self.buffer[y][x:]
+                self.pos = y, x+1
             self.refresh()
-            self.pos = y, x+1
             self.refresh_cursor()
+        elif ch==curses.ascii.DEL:
+            if not self.editop or not self.editop.edit_type == "delete" \
+                or self.editop.backwards:
+                self.start_new_char_edit("delete", self.pos)
+            if x == len(self.buffer[y]):
+                # delete the \n char if possible
+                if y < len(self.buffer)-1:
+                    self.editop.append_edit("\n")
+                    self.buffer[y] = self.buffer[y] + self.buffer[y+1]
+                    del self.buffer[y+1]
+            else:
+                char = self.buffer[y][x]
+                self.editop.append_edit(char)
+                self.buffer[y] = self.buffer[y][:x]+self.buffer[y][x+1:]
+            self.refresh()
         elif is_direction_char(ch):
             # finish the last edit if exists
             if self.editop:
@@ -219,20 +281,32 @@ class Editor(object):
         return True
             
     def refresh_command_line(self):
+        self.clear_scr_line(self.maxy-1)
         if self.mode=="editing":
             self.scr.addstr(self.maxy-1,0, "-- INSERT --")
         else:
             if not self.command_editing:
-                self.scr.addstr(self.maxy-1, 0, " "*self.maxx)
-        
+                self.scr.addstr(self.maxy-1, 0, "-- COMMAND --")
+    
+    def clear_scr_line(self, y):
+        _y, _x = self.scr.getyx()
+        self.scr.move(y,0)
+        self.scr.clrtoeol()
+        self.scr.move(_y, _x)
+
     def refresh(self):
         _y = 0
         self.line_heights = []
         for line in self.buffer[self.topline:]:
-            idx = 0
-            line_height = 0
+            singleline = line[:self.maxx]
+            self.clear_scr_line(_y)
+            self.scr.addstr(_y, 0, singleline)
+            idx = self.maxx
+            line_height = 1
+            _y += 1
             while idx<len(line):
                 singleline = line[idx:idx+self.maxx]
+                self.clear_scr_line(_y)
                 self.scr.addstr(_y, 0, singleline)
                 idx += self.maxx
                 _y+=1
@@ -244,6 +318,7 @@ class Editor(object):
                 break
         # fill the extra lines with ~
         while _y < self.maxy-1:
+            self.clear_scr_line(_y)
             self.scr.addstr(_y,0,"~", curses.COLOR_RED)
             _y+=1
         # last line is reserved for commands
