@@ -1,11 +1,12 @@
+"""
+This is my implementaion of the classic vi editor
+The plan is to support only the very basic functionality and commands
+"""
 import curses
 import curses.ascii
 import sys
 import copy
-
-# helpers
-def is_direction_char(ch):
-    return ch in (curses.KEY_DOWN, curses.KEY_UP, curses.KEY_LEFT, curses.KEY_RIGHT)
+import signal
 
 class EditOp(object):
     """Edit operation:
@@ -54,8 +55,9 @@ class EditOp(object):
             elif self.edit_type == "insert":
                 if "\n" in self.value:
                     segments = self.value.split("\n")
-                    _buffer[y] = _buffer[y]+segments[0]
-                    _buffer.insert(y+1, segments[1])
+                    oldline = _buffer[y]
+                    _buffer[y] = oldline[:x]+segments[0]
+                    _buffer.insert(y+1, segments[1]+oldline[x:])
                 else:
                     _buffer[y] = _buffer[y][:x] + self.value + _buffer[y][x:]
             else:
@@ -72,8 +74,8 @@ class EditOp(object):
         # after apply, editor should refresh view
 
     def append_edit(self, char):
-        self.cnt += 1
-        self.value += chr(char)
+        self.cnt += len(char)
+        self.value += char
 
 class EditList(object):
     def __init__(self, editor):
@@ -133,22 +135,36 @@ class Editor(object):
         self.buffer = buf
         self.editop = None
         self.editlist = EditList(self)
+        self.config = {
+            "expandtab": True,
+            "tabspaces": 4,
+        }
 
     def main_loop(self, stdscr):        
         self.scr = stdscr
         self.maxy, self.maxx = stdscr.getmaxyx()
+
+        # This is the model part of MVC
         self.topline = 0
         self.line_heights = []
         self.mode = "command"
         self.command_editing = False
         self.pos = (0,0) # line and column of buffer
         self.partial = ""
-
+        self.status_line = "-- COMMAND --"
+        # render the initial screen
         self.refresh()
+        self.refresh_command_line()
+        self.refresh_cursor()
         while True:
             ch = self.scr.getch()
             if not self.do_command(ch):
                 break
+
+    def commit_current_edit(self):
+        if self.editop:
+            self.editlist.commitEdit(self.editop)
+            self.editop = None
 
     def start_new_char_edit(self, etype, pos):
         # check if old edit is committed
@@ -169,106 +185,194 @@ class Editor(object):
     def reindent_line(self, lineno):
         pass
 
-    def handle_editing_command(self, ch):
-        pass
+    def parse_command_after_char(self, ch):
+        # The tuple should be ordered by descending length, 
+        # for a command, its suffix should always be after itself 
+        chr_cmd_tuples = [
+            ("dd", "delete_line"),
+            ("i", "insert_mode"),
+            ("o", "insert_line"),
+            ("u", "undo"),
+            (".", "repeat_edit"),
+        ]
+        chr_cmd_map = dict(chr_cmd_tuples)
+        meta_cmd_map = {
+            curses.ascii.DC2: "redo"
+        }
+
+        if curses.ascii.isprint(ch):
+            self.partial += chr(ch)
+            for t in chr_cmd_tuples:
+                if self.partial.endswith(t[0]):
+                    # reset the partial after find a command
+                    self.partial = ""
+                    return t[1]
+        else:
+            # when meet a meta command, clear the partial
+            self.partial = ""
+            if ch in meta_cmd_map:
+                return meta_cmd_map[ch]
+        return None
+
+    def is_direction_char(self, ch):
+        return (ch in (curses.KEY_DOWN, curses.KEY_UP, curses.KEY_LEFT, curses.KEY_RIGHT) 
+            or (ch in (ord('h'), ord('j'), ord('k'), ord('l')) 
+                and self.mode=="command" and not self.command_editing))
 
     def handle_command(self, ch):
-        self.partial += chr(ch)
-        if self.partial=="i":
+        if self.is_direction_char(ch):
+            self.handle_cursor_move(ch)
+            return
+        cmd = self.parse_command_after_char(ch)
+        if not cmd: return
+        if cmd == "insert_mode":
             self.mode = "editing"
-            self.partial = ""
             self.refresh_command_line()
-
-    def handle_editing(self, ch):
-        y, x = self.pos
-        if curses.ascii.isprint(ch) or ch==ord("\n"):
-            if not self.editop or not self.editop.edit_type == "insert":
-                self.start_new_char_edit("insert", self.pos)
-            self.editop.append_edit(ch)
-            if chr(ch)=="\n":
-                line = self.buffer[y]
-                self.buffer[y] = line[:x]
-                self.buffer.insert(y+1, line[x:])
-                self.pos = y+1, 0
-                # now adjust the indentation if needed
-                self.reindent_line(y+1)
-                self.start_new_char_edit("insert", self.pos)
-            else:
-                self.buffer[y] = self.buffer[y][:x]+chr(ch)+self.buffer[y][x:]
-                self.pos = y, x+1
+        elif cmd == "insert_line":
+            self.mode = "editing"
+            self.buffer.insert(self.pos[0]+1, "")
+            self.pos = (self.pos[0]+1, 0)
             self.refresh()
             self.refresh_cursor()
-        elif ch==curses.ascii.DEL:
-            if not self.editop or not self.editop.edit_type == "delete" \
-                or self.editop.backwards:
-                self.start_new_char_edit("delete", self.pos)
-            if x == len(self.buffer[y]):
-                # delete the \n char if possible
-                if y < len(self.buffer)-1:
-                    self.editop.append_edit("\n")
-                    self.buffer[y] = self.buffer[y] + self.buffer[y+1]
-                    del self.buffer[y+1]
-            else:
-                char = self.buffer[y][x]
-                self.editop.append_edit(char)
-                self.buffer[y] = self.buffer[y][:x]+self.buffer[y][x+1:]
-            self.refresh()
-        elif is_direction_char(ch):
-            # finish the last edit if exists
-            if self.editop:
-                self.editlist.commitEdit(self.editop)
-                self.editop = None
-            y, x = self.pos
-            # print y, x
-            if ch==curses.KEY_UP and y > 0:
-                y = y-1
-                x = min(x, len(self.buffer[y])-1)
-                self.pos = (y, x)
-                if y<self.topline:
-                    self.topline -= 1
-                    self.refresh()
-                self.refresh_cursor()
-            elif ch==curses.KEY_DOWN and y < len(self.buffer)-1:
-                y = y + 1
-                x = min(x, len(self.buffer[y])-1)
-                self.pos = (y, x)
-                in_screen = self.refresh_cursor()
-                while not in_screen:
-                    self.topline += 1
-                    self.refresh()
-                    in_screen = self.refresh_cursor()
-            elif ch==curses.KEY_LEFT and x>0:
-                self.pos = (y, x-1)
-                self.refresh_cursor()
-            elif ch==curses.KEY_RIGHT and x<len(self.buffer[y])-1:
-                self.pos = (y, x+1)
-                in_screen = self.refresh_cursor()
-                if not in_screen:
-                    self.topline += 1
-                    self.refresh()
-                    self.refresh_cursor()
-        elif ch==curses.ascii.NAK: # Ctrl+Z for undo
-            if self.editop:
-                self.editlist.commitEdit(self.editop)
-                self.editop = None
+            self.refresh_command_line()
+        elif cmd == "undo": # for undo
             pos = self.editlist.get_pos()
             if not self.editlist.undo():
-                self.scr.addstr(self.maxy-1,0, "--Already at the earliest edit--")
+                self.flash_status_line("--Already at the earliest edit--")
             else:
                 self.pos = pos
                 self.refresh()
                 self.refresh_cursor()
-        elif ch==curses.ascii.DC2: # Ctrl+Y for redo
-            if self.editop:
-                self.editlist.commitEdit(self.editop)
-                self.editop = None
+        elif cmd=="redo": # Ctrl+R for redo
             if not self.editlist.redo():
-                self.scr.addstr(self.maxy-1,0, "--Already at the lastest edit--")
+                self.flash_status_line("--Already at the lastest edit--")
             else:
                 self.pos = self.editlist.get_pos()
                 self.refresh()
                 self.refresh_cursor()
+        elif cmd=="repeat_edit":
+            if self.editlist.repeat():
+                self.pos = self.editlist.get_pos()
+                self.refresh()
+                self.refresh_cursor()
+
+    def handle_editing_command(self, ch):
+        pass
+
+    def handle_cursor_move(self, ch):
+        # finish the last edit if exists
+        self.commit_current_edit()
+        y, x = self.pos
+        # print y, x
+        if ch in (curses.KEY_UP, ord('k')) and y > 0:
+            y = y-1
+            x = min(x, len(self.buffer[y]))
+            self.pos = (y, x)
+            if y<self.topline:
+                self.topline -= 1
+                self.refresh()
+            self.refresh_cursor()
+        elif ch in (curses.KEY_DOWN, ord('j')) and y < len(self.buffer)-1:
+            y = y + 1
+            x = min(x, len(self.buffer[y]))
+            self.pos = (y, x)
+            in_screen = self.refresh_cursor()
+            while not in_screen:
+                self.topline += 1
+                self.refresh()
+                in_screen = self.refresh_cursor()
+        elif ch in (curses.KEY_LEFT, ord('h')) and x>0:
+            self.pos = (y, x-1)
+            self.refresh_cursor()
+        elif ch in (curses.KEY_RIGHT, ord('l')) and x<len(self.buffer[y]):
+            self.pos = (y, x+1)
+            in_screen = self.refresh_cursor()
+            if not in_screen:
+                self.topline += 1
+                self.refresh()
+                self.refresh_cursor()
+
+    def handle_delete_char(self, ch):
+        if (not self.editop or not self.editop.edit_type == "delete" 
+            or (self.editop.backwards and ch==127) 
+            or (not self.editop.backwards and ch==8)):
+            self.start_new_char_edit("delete", self.pos)
+            if ch==8: 
+                self.editop.backwards = True
+        y, x = self.pos
+        if ch==127:
+            if x == len(self.buffer[y]):
+                if y < len(self.buffer)-1: 
+                    # delete the \n at the end of a line
+                    self.editop.append_edit("\n")
+                    self.buffer[y] = self.buffer[y] + self.buffer[y+1]
+                    del self.buffer[y+1]
+                    self.commit_current_edit()
+                # else, last line, last char, ignore
+            else:
+                char = self.buffer[y][x]
+                self.editop.append_edit(char)
+                self.buffer[y] = self.buffer[y][:x]+self.buffer[y][x+1:]
+        else: # backspace
+            if x==0:
+                if y > 0:
+                    self.editop.append_edit("\n")
+                    lastlen = len(self.buffer[y-1])
+                    self.buffer[y-1] = self.buffer[y-1] + self.buffer[y]
+                    del self.buffer[y]
+                    self.pos = y-1, lastlen
+                    self.commit_current_edit()
+            else:
+                char = self.buffer[y][x-1]
+                self.editop.append_edit(char)
+                self.buffer[y] = self.buffer[y][:x-1]+self.buffer[y][x:]
+                self.pos = y, x-1
+        self.refresh()
+        self.refresh_cursor()
+
+    def handle_editing(self, ch):
+        y, x = self.pos
+        if curses.ascii.isprint(ch) or ch==ord("\n") or ch==ord("\t"):
+            if not self.editop or not self.editop.edit_type == "insert":
+                self.start_new_char_edit("insert", self.pos)
+            if chr(ch)=="\t" and self.config["expandtab"]: # if expand tab into spaces
+                spaces = " "*self.config["tabspaces"]
+                self.editop.append_edit(spaces)
+                self.buffer[y] = self.buffer[y][:x] + spaces + self.buffer[y][x:]
+                self.pos = y, x+self.config["tabspaces"]
+            else:
+                self.editop.append_edit(chr(ch))
+                if chr(ch)=="\n":
+                    line = self.buffer[y]
+                    self.buffer[y] = line[:x]
+                    self.buffer.insert(y+1, line[x:])
+                    self.pos = y+1, 0
+                    # now adjust the indentation if needed
+                    self.reindent_line(y+1)
+                    self.start_new_char_edit("insert", self.pos)
+                else:
+                    self.buffer[y] = self.buffer[y][:x]+chr(ch)+self.buffer[y][x:]
+                    self.pos = y, x+1
+            self.refresh()
+            self.refresh_cursor()
+        elif ch==127 or ch==8: #DEL or BACKSPACE
+            self.handle_delete_char(ch)
+        elif self.is_direction_char(ch):
+            self.handle_cursor_move(ch)
+        elif ch==27: #ESC, to exit editing mode
+            self.mode = "command"
+            self.command_editing = False
+            self.partial = ""
+            self.status_line = "-- COMMAND --"
+            # need to commit edit before switching mode
+            self.commit_current_edit()
+            self.refresh_command_line()
         return True
+
+    # View part of MVC: screen rendering 
+    def clear_scr_line(self, y):
+        self.scr.move(y,0)
+        self.scr.clrtoeol()
 
     def refresh_cursor(self):
         # move the cursor position based on self.pos
@@ -279,19 +383,23 @@ class Editor(object):
             return False
         self.scr.move(screen_y, screen_x)
         return True
-            
+    
+    def flash_status_line(self, s):
+        orig = self.status_line
+        self.status_line = s
+        self.refresh_command_line()
+        def revert(signum, _frame):
+            self.status_line = orig
+            self.refresh_command_line()
+        signal.signal(signal.SIGALRM, revert)
+        signal.alarm(3)
+
     def refresh_command_line(self):
+        _y, _x = self.scr.getyx()
         self.clear_scr_line(self.maxy-1)
         if self.mode=="editing":
-            self.scr.addstr(self.maxy-1,0, "-- INSERT --")
-        else:
-            if not self.command_editing:
-                self.scr.addstr(self.maxy-1, 0, "-- COMMAND --")
-    
-    def clear_scr_line(self, y):
-        _y, _x = self.scr.getyx()
-        self.scr.move(y,0)
-        self.scr.clrtoeol()
+            self.status_line = "-- INSERT --"
+        self.scr.addstr(self.maxy-1,0, self.status_line)
         self.scr.move(_y, _x)
 
     def refresh(self):
@@ -322,7 +430,7 @@ class Editor(object):
             self.scr.addstr(_y,0,"~", curses.COLOR_RED)
             _y+=1
         # last line is reserved for commands
-        self.refresh_command_line()
+        # self.refresh_command_line()
         
 def main():
     # parse the file argument if exists
