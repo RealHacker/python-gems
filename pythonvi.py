@@ -7,6 +7,8 @@ import curses.ascii
 import sys
 import copy
 import signal
+import re
+import string
 
 debug = True
 if debug:
@@ -165,6 +167,8 @@ class Editor(object):
         self.pos = (0,0) # line and column of buffer
         self.partial = ""
         self.status_line = "-- COMMAND --"
+        self.commandline = ""
+        self.dirty = False
         # render the initial screen
         self.refresh()
         self.refresh_command_line()
@@ -177,11 +181,13 @@ class Editor(object):
     def commit_current_edit(self):
         if self.editop:
             self.editlist.commitEdit(self.editop)
+            self.dirty = True
             self.editop = None
 
     def start_new_char_edit(self, etype, pos):
         # check if old edit is committed
         if self.editop:
+            self.dirty = True
             self.editlist.commitEdit(self.editop)
         self.editop = EditOp(self, etype, "char", pos)
 
@@ -197,12 +203,13 @@ class Editor(object):
 
     def reindent_line(self, lineno):
         pass
-
+        
     def parse_command_after_char(self, ch):
         # The tuple should be ordered by descending length, 
         # for a command, its suffix should always be after itself 
         chr_cmd_tuples = [
             ("dd", "delete_line"),
+            ("gg", "goto_first_line"),
             ("i", "insert_mode"),
             ("o", "insert_line"),
             ("u", "undo"),
@@ -215,6 +222,14 @@ class Editor(object):
             ("H", "goto_first_screen_line"),
             ("L", "goto_last_screen_line"),
             ("M", "goto_middle_screen_line"),
+            ("G", ":goto_line"),
+            ("w", "next_word_start"),
+            ("W", "next_term_start"),
+            ("e", "word_end"),
+            ("E", "term_end"),
+            ("b", "word_start"),
+            ("B", "term_start"),
+            (":", "command_edit_mode"),
         ]
         chr_cmd_map = dict(chr_cmd_tuples)
         meta_cmd_map = {
@@ -229,9 +244,22 @@ class Editor(object):
             self.partial += chr(ch)
             for t in chr_cmd_tuples:
                 if self.partial.endswith(t[0]):
-                    # reset the partial after find a command
-                    self.partial = ""
-                    return t[1]
+                    cmd = t[1]
+                    if cmd.startswith(":"):
+                        cmd = cmd[1:]
+                        # meaning this command has a number before it
+                        regex = re.compile(".*([0-9]+)$")
+                        mo = regex.match(self.partial[:-1])
+                        self.partial = ""
+                        if mo:
+                            number = int(mo.group(1))
+                            return (cmd, number)
+                        else:
+                            return cmd
+                    else:
+                        # reset the partial after find a command
+                        self.partial = ""
+                        return cmd
         else:
             # when meet a meta command, clear the partial
             self.partial = ""
@@ -244,12 +272,37 @@ class Editor(object):
             or (ch in (ord('h'), ord('j'), ord('k'), ord('l')) 
                 and self.mode=="command" and not self.command_editing))
 
+    def advance_word(self, s, idx):
+        wordchars = string.letters + string.digits + "_"
+        if idx >= len(s): return idx
+        if s[idx] in wordchars:
+            while idx < len(s) and s[idx] in wordchars : idx += 1
+        elif s[idx] == " ":
+            while idx < len(s) and s[idx] == " ": idx += 1
+        else:
+            while idx < len(s) and s[idx] not in wordchars and s[idx] != " ": idx+=1
+        return idx
+
+    def advance_term(self, s, idx):
+        while idx < len(s) and s[idx] != " ": idx +=1
+        return idx
+
+    def advance_spaces(self, s, idx):
+        while idx < len(s) and s[idx]==" ": idx+=1
+        return idx
+
     def handle_command(self, ch):
         if self.is_direction_char(ch):
             self.handle_cursor_move(ch)
             return
         cmd = self.parse_command_after_char(ch)
         if not cmd: return
+        # if is a tuple, set the parameter
+        if isinstance(cmd, tuple):
+            parameter = cmd[1]            
+            cmd = cmd[0]
+        else:
+            parameter = None
         if cmd == "insert_mode":
             self.mode = "editing"
             self.refresh_command_line()
@@ -327,6 +380,65 @@ class Editor(object):
             if self.pos[0] >= self.topline+self.screen_lines-1:
                 self.pos = (self.topline+self.screen_lines-1, 0)
             self.refresh_cursor()
+        elif cmd=="goto_line" or cmd=="goto_first_line":
+            if cmd=="goto_first_line":
+                lineno = 0
+            elif not parameter or parameter>len(self.buffer):
+                # go to last line
+                lineno = len(self.buffer)-1
+            else:
+                lineno = parameter-1
+            self.topline = lineno
+            self.refresh()
+            self.pos = (lineno, 0)
+            self.refresh_cursor()
+        elif cmd == "next_word_start":
+            s = self.buffer[self.pos[0]]
+            idx = self.pos[1]
+            idx = self.advance_word(s, idx)
+            idx = self.advance_spaces(s, idx)
+            if idx >= len(s):
+                if self.pos[0] < len(self.buffer)-1:
+                    self.pos = self.pos[0]+1, 0
+            else:
+                self.pos = self.pos[0], idx
+            self.refresh_cursor()
+        elif cmd == "next_term_start":
+            s = self.buffer[self.pos[0]]
+            idx = self.pos[1]
+            idx = self.advance_term(s, idx)
+            idx = self.advance_spaces(s, idx)
+            if idx >= len(s):
+                if self.pos[0] < len(self.buffer)-1:
+                    self.pos = self.pos[0]+1, 0
+            else:
+                self.pos = self.pos[0], idx
+            self.refresh_cursor()
+        elif cmd == "word_end":
+            s = self.buffer[self.pos[0]]
+            idx = self.pos[1]+1
+            if idx >= len(s):
+                if self.pos[0] < len(self.buffer)-1:
+                    self.pos = self.pos[0]+1, 0
+                    s = self.buffer[self.pos[0]]
+                    idx = 0
+            idx = self.advance_word(s, idx)
+            self.pos = self.pos[0], max(idx-1, 0)
+            self.refresh_cursor()
+        elif cmd == "term_end":
+            s = self.buffer[self.pos[0]]
+            idx = self.pos[1]+1
+            if idx >= len(s):
+                if self.pos[0] < len(self.buffer)-1:
+                    self.pos = self.pos[0]+1, 0
+                    s = self.buffer[self.pos[0]]
+                    idx = 0
+            idx = self.advance_spaces(s, idx)
+            idx = self.advance_term(s, idx)
+            self.pos = self.pos[0], max(idx-1, 0)
+            self.refresh_cursor()
+        elif cmd == "word_start": pass
+        elif cmd == "term_start": pass
         elif cmd == "undo": # for undo
             pos = self.editlist.get_pos()
             if not self.editlist.undo():
@@ -347,9 +459,27 @@ class Editor(object):
                 self.pos = self.editlist.get_pos()
                 self.refresh()
                 self.refresh_cursor()
+        elif cmd=="command_edit_mode":
+            self.command_editing = True
+            self.commandline = ":"
+            self.refresh_command_line()
 
     def handle_editing_command(self, ch):
-        pass
+        if curses.ascii.isprint(ch):
+            self.commandline += chr(ch)
+            self.refresh_command_line()
+        elif ch==10: # new line \n
+            self.command_editing = False
+            if self.commandline.startswith(":"):
+                commandline = self.commandline[1:]    
+                if commandline in ("q", "q!"):
+                    if commandline == "q" and self.dirty:
+                        self.flash_status_line("--Unsaved Changes--")
+                    else:
+                        raise SystemExit()
+            elif self.commandline.startswith("/"):pass
+            elif self.commandline.startswith("?"):pass
+            self.refresh_cursor()
 
     def handle_cursor_move(self, ch):
         # finish the last edit if exists
@@ -506,10 +636,14 @@ class Editor(object):
     def refresh_command_line(self):
         _y, _x = self.scr.getyx()
         self.clear_scr_line(self.maxy-1)
-        if self.mode=="editing":
-            self.status_line = "-- INSERT --"
-        self.scr.addstr(self.maxy-1,0, self.status_line)
-        self.scr.move(_y, _x)
+        if self.mode=="command" and self.command_editing:
+            self.scr.addstr(self.maxy-1, 0, self.commandline)
+            self.scr.move(self.maxy-1, len(self.commandline))
+        else:
+            if self.mode=="editing":
+                self.status_line = "-- INSERT --"
+            self.scr.addstr(self.maxy-1,0, self.status_line)
+            self.scr.move(_y, _x)
 
     def refresh(self):
         _y = 0
