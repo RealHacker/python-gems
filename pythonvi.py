@@ -8,6 +8,18 @@ import sys
 import copy
 import signal
 
+debug = True
+if debug:
+    logfile = open("log.txt", "a")
+
+def writelog(*argv):
+    if debug:
+        logline = " ".join(["%s"%arg for arg in argv])
+        logfile.write(logline+"\n")
+
+class LineBeyondScreenError(Exception):
+    "Raised when the line or cursor is beyond the screen and needs scrolling"
+
 class EditOp(object):
     """Edit operation:
         * edit_type: insert/delete/replace
@@ -147,6 +159,7 @@ class Editor(object):
         # This is the model part of MVC
         self.topline = 0
         self.line_heights = []
+        self.screen_lines = 0
         self.mode = "command"
         self.command_editing = False
         self.pos = (0,0) # line and column of buffer
@@ -194,10 +207,22 @@ class Editor(object):
             ("o", "insert_line"),
             ("u", "undo"),
             (".", "repeat_edit"),
+            ("^", "goto_line_start"),
+            ("0", "goto_line_start"),
+            ("$", "goto_line_end"),
+            ("-", "goto_prev_line_start"),
+            ("+", "goto_next_line_start"),
+            ("H", "goto_first_screen_line"),
+            ("L", "goto_last_screen_line"),
+            ("M", "goto_middle_screen_line"),
         ]
         chr_cmd_map = dict(chr_cmd_tuples)
         meta_cmd_map = {
-            curses.ascii.DC2: "redo"
+            curses.ascii.DC2: "redo", # CTRL + R
+            curses.ascii.ACK: "next_page", # CTRL + F
+            curses.ascii.STX: "prev_page", # CTRL + B
+            curses.ascii.ENQ: "scroll_down", # CTRL + E
+            curses.ascii.EM: "scroll_up", # CTRL + Y
         }
 
         if curses.ascii.isprint(ch):
@@ -235,6 +260,73 @@ class Editor(object):
             self.refresh()
             self.refresh_cursor()
             self.refresh_command_line()
+        elif cmd == "goto_line_start":
+            self.pos = (self.pos[0], 0)
+            self.refresh_cursor()
+        elif cmd == "goto_line_end":
+            self.pos = (self.pos[0], len(self.buffer[self.pos[0]])-1)
+            self.refresh_cursor()
+        elif cmd == "goto_prev_line_start":
+            if self.pos[0]>0:
+                y, x = self.pos
+                self.pos = (y-1, 0)
+                self.refresh_cursor()
+        elif cmd == "goto_next_line_start":
+            if self.pos[0]<len(self.buffer)-1:
+                y, x = self.pos
+                self.pos = (y+1, 0)
+                self.refresh_cursor()
+        elif cmd == "goto_first_screen_line":
+            self.pos = self.topline, 0
+            self.refresh_cursor()
+        elif cmd == "goto_last_screen_line":
+            self.pos = self.topline +self.screen_lines-1, 0
+            self.refresh_cursor()
+        elif cmd == "goto_middle_screen_line":
+            self.pos = self.topline + self.screen_lines/2, 0
+            self.refresh_cursor()
+        elif cmd == "next_page":
+            if self.topline == len(self.buffer)-1: 
+                return
+            self.topline = self.topline + self.screen_lines -1
+            self.refresh()
+            self.pos = (self.topline, 0)
+            self.refresh_cursor()
+        elif cmd == "prev_page":
+            if self.topline == 0:
+                return
+            # need to calculate how many line we need to scroll up
+            idx = self.topline
+            line_cnt = 0
+            while idx>=0:
+                line_cnt += len(self.buffer[idx])/self.maxx+1
+                if line_cnt > self.maxy-1:
+                    break
+                idx -= 1
+            idx = min(idx+1, self.topline)
+            self.topline = idx
+            self.refresh()
+            self.pos = (self.topline + self.screen_lines-1, 0)
+            self.refresh_cursor()
+        elif cmd == "scroll_down":
+            if self.topline == len(self.buffer)-1: 
+                return
+            self.topline = self.topline + 1
+            self.refresh()
+            if self.pos[0] < self.topline:
+                # if the cursor is beyond top of screen, move cursor to topline, keep the x pos
+                xpos = max(0, min(self.pos[1], len(self.buffer[self.topline])-1))
+                self.pos = (self.topline, xpos)
+            self.refresh_cursor()
+        elif cmd == "scroll_up":
+            if self.topline == 0:
+                return
+            self.topline = self.topline - 1
+            self.refresh()
+            # to make it simple, when cursor is beyond the bottom, move it to the start of last line
+            if self.pos[0] >= self.topline+self.screen_lines-1:
+                self.pos = (self.topline+self.screen_lines-1, 0)
+            self.refresh_cursor()
         elif cmd == "undo": # for undo
             pos = self.editlist.get_pos()
             if not self.editlist.undo():
@@ -266,32 +358,34 @@ class Editor(object):
         # print y, x
         if ch in (curses.KEY_UP, ord('k')) and y > 0:
             y = y-1
-            x = min(x, len(self.buffer[y]))
+            last_char = len(self.buffer[y])
+            if self.mode == "command" and last_char>0:
+                last_char = last_char-1
+            x = min(x, last_char)
             self.pos = (y, x)
-            if y<self.topline:
-                self.topline -= 1
-                self.refresh()
+            # if y<self.topline:
+            #     self.topline -= 1
+            #     self.refresh()
             self.refresh_cursor()
         elif ch in (curses.KEY_DOWN, ord('j')) and y < len(self.buffer)-1:
             y = y + 1
-            x = min(x, len(self.buffer[y]))
+            last_char = len(self.buffer[y])
+            if self.mode == "command" and last_char>0:
+                last_char = last_char-1
+            x = min(x, last_char)
             self.pos = (y, x)
-            in_screen = self.refresh_cursor()
-            while not in_screen:
-                self.topline += 1
-                self.refresh()
-                in_screen = self.refresh_cursor()
+            self.refresh_cursor()
         elif ch in (curses.KEY_LEFT, ord('h')) and x>0:
             self.pos = (y, x-1)
             self.refresh_cursor()
-        elif ch in (curses.KEY_RIGHT, ord('l')) and x<len(self.buffer[y]):
-            self.pos = (y, x+1)
-            in_screen = self.refresh_cursor()
-            if not in_screen:
-                self.topline += 1
-                self.refresh()
+        elif ch in (curses.KEY_RIGHT, ord('l')):
+            last_char = len(self.buffer[y])
+            if self.mode == "command" and last_char>0:
+                last_char = last_char-1
+            if x<last_char:
+                self.pos = (y, x+1)
                 self.refresh_cursor()
-
+                
     def handle_delete_char(self, ch):
         if (not self.editop or not self.editop.edit_type == "delete" 
             or (self.editop.backwards and ch==127) 
@@ -355,17 +449,22 @@ class Editor(object):
                     self.pos = y, x+1
             self.refresh()
             self.refresh_cursor()
-        elif ch==127 or ch==8: #DEL or BACKSPACE
+
+        elif ch==127 or ch==8: # DEL or BACKSPACE
             self.handle_delete_char(ch)
         elif self.is_direction_char(ch):
             self.handle_cursor_move(ch)
-        elif ch==27: #ESC, to exit editing mode
+        elif ch==27: # ESC, to exit editing mode
             self.mode = "command"
             self.command_editing = False
             self.partial = ""
             self.status_line = "-- COMMAND --"
             # need to commit edit before switching mode
             self.commit_current_edit()
+            # If currently pos beyond end of line, move back 1 char before entering command mode
+            if x != 0 and x == len(self.buffer[y]):
+                self.pos = (y, x-1)
+                self.refresh_cursor()
             self.refresh_command_line()
         return True
 
@@ -376,14 +475,24 @@ class Editor(object):
 
     def refresh_cursor(self):
         # move the cursor position based on self.pos
+        # when cursor moves beyond top of screen
+        if self.pos[0] < self.topline:
+            self.topline = self.pos[0]
+            self.refresh()
         screen_y = sum(self.line_heights[:self.pos[0]-self.topline])
         screen_y += self.pos[1]/self.maxx
         screen_x = self.pos[1]%self.maxx
-        if screen_y >= self.maxy-1:
-            return False
-        self.scr.move(screen_y, screen_x)
-        return True
-    
+        writelog("pos", self.pos[0], self.pos[1])
+        writelog(screen_y, screen_x)
+
+        if screen_y >= self.maxy-1 and self.topline<len(self.buffer)-1:
+            # if the cursor is beyond the bottom of screen, scroll down 1 line and retry
+            self.topline += 1
+            self.refresh()
+            self.refresh_cursor()
+        else:
+            self.scr.move(screen_y, screen_x)
+
     def flash_status_line(self, s):
         orig = self.status_line
         self.status_line = s
@@ -405,25 +514,32 @@ class Editor(object):
     def refresh(self):
         _y = 0
         self.line_heights = []
+        self.screen_lines = 0
         for line in self.buffer[self.topline:]:
             singleline = line[:self.maxx]
             self.clear_scr_line(_y)
             self.scr.addstr(_y, 0, singleline)
             idx = self.maxx
             line_height = 1
+            self.screen_lines += 1
             _y += 1
-            while idx<len(line):
-                singleline = line[idx:idx+self.maxx]
-                self.clear_scr_line(_y)
-                self.scr.addstr(_y, 0, singleline)
-                idx += self.maxx
-                _y+=1
-                line_height += 1
+            try:
                 if _y >= self.maxy-1:
-                    break
-            self.line_heights.append(line_height)
-            if _y >= self.maxy-1:
+                    raise LineBeyondScreenError()
+                while idx<len(line):
+                    singleline = line[idx:idx+self.maxx]
+                    self.clear_scr_line(_y)
+                    self.scr.addstr(_y, 0, singleline)
+                    idx += self.maxx
+                    _y+=1
+                    line_height += 1
+                    if _y >= self.maxy-1:
+                        raise LineBeyondScreenError()
+            except LineBeyondScreenError:
+                self.line_heights.append(line_height)
                 break
+            self.line_heights.append(line_height)
+                
         # fill the extra lines with ~
         while _y < self.maxy-1:
             self.clear_scr_line(_y)
@@ -432,6 +548,9 @@ class Editor(object):
         # last line is reserved for commands
         # self.refresh_command_line()
         
+def intercept_signals():
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
 def main():
     # parse the file argument if exists
     if len(sys.argv)==1:
@@ -448,6 +567,8 @@ def main():
     else:
         f = None
         buf = [""]
+    intercept_signals()
+
     editor = Editor(f, buf)
     curses.wrapper(editor.main_loop)
 
