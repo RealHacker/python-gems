@@ -138,7 +138,7 @@ class EditList(object):
         # for backward delete, correct the pos and value
         if op.backwards:
             op.value = op.value[::-1]
-            op.pos = op.pos-len(op.value)
+            op.pos = op.pos[0], op.pos[1]-len(op.value)
         # The editop should have been applied before commit
         self.edits.append(op)
         self.cursor += 1
@@ -210,8 +210,11 @@ class Editor(object):
         # The tuple should be ordered by descending length, 
         # for a command, its suffix should always be after itself 
         chr_cmd_tuples = [
-            ("dd", "delete_line"),
             ("gg", "goto_first_line"),
+            ("dw", "delete_word"),
+            ("dW", "delete_term"),
+            ("dd", "delete_line"),
+            ("r", "replace_char"),
             ("i", "insert_mode"),
             ("o", "insert_line"),
             ("u", "undo"),
@@ -232,6 +235,10 @@ class Editor(object):
             ("b", "word_start"),
             ("B", "term_start"),
             (":", "command_edit_mode"),
+            ("~", "switch_case"),
+            ("x", "delete_char"),
+            ("X", "delete_last_char"),
+            
         ]
         chr_cmd_map = dict(chr_cmd_tuples)
         meta_cmd_map = {
@@ -258,6 +265,13 @@ class Editor(object):
                             return (cmd, number)
                         else:
                             return cmd
+                    elif cmd=="replace_char":
+                        ch = self.scr.getch()
+                        self.partial = ""
+                        if curses.ascii.isprint(ch):
+                            return (cmd, chr(ch))
+                        else:
+                            return None
                     else:
                         # reset the partial after find a command
                         self.partial = ""
@@ -293,7 +307,7 @@ class Editor(object):
 
     def advance_spaces(self, s, idx, direction="forward"):
         step = 1 if direction=="forward" else -1
-        while id>=0 and idx < len(s) and s[idx]==" ": idx+=step
+        while idx>=0 and idx < len(s) and s[idx]==" ": idx+=step
         return idx
 
     def handle_command(self, ch):
@@ -512,7 +526,81 @@ class Editor(object):
             self.command_editing = True
             self.commandline = ":"
             self.refresh_command_line()
-
+        elif cmd == "switch_case":
+            line = self.buffer[self.pos[0]]
+            ch = line[self.pos[1]]
+            if ch in string.letters:
+                if ch in string.lowercase:
+                    line = line[:self.pos[1]]+ch.upper()+line[self.pos[1]+1:]
+                elif ch in string.uppercase:
+                    line = line[:self.pos[1]]+ch.lower()+line[self.pos[1]+1:]
+                self.buffer[self.pos[0]] = line
+                self.refresh()
+            if self.pos[1]<len(line)-1:
+                self.pos = self.pos[0], self.pos[1]+1
+            self.refresh_cursor()
+        elif cmd == "delete_char":
+            self.handle_delete_char(ch)
+        elif cmd == "delete_last_char":
+            self.handle_delete_char(ch)
+        elif cmd == "delete_word":
+            s = self.buffer[self.pos[0]]
+            idx = self.pos[1]
+            idx = self.advance_word(s, idx)
+            idx = self.advance_spaces(s, idx)
+            self.buffer[self.pos[0]] = s[:self.pos[1]]+s[idx:]
+            self.refresh()
+            if self.pos[1]<idx:
+                self.start_new_char_edit("delete", self.pos)
+                self.editop.append_edit(s[self.pos[1]:idx])
+                self.commit_current_edit()
+            if self.pos[1] >= len(s): 
+                newx = self.pos[1]-1
+            else:
+                newx = self.pos[1]
+            self.pos = self.pos[0], max(newx, 0)
+            self.refresh_cursor()
+        elif cmd == "delete_term":
+            s = self.buffer[self.pos[0]]
+            idx = self.pos[1]
+            idx = self.advance_term(s, idx)
+            idx = self.advance_spaces(s, idx)
+            self.buffer[self.pos[0]] = s[:self.pos[1]]+s[idx:]
+            self.refresh()
+            if self.pos[1]<idx:
+                self.start_new_char_edit("delete", self.pos)
+                self.editop.append_edit(s[self.pos[1]:idx])
+                self.commit_current_edit()
+            if idx >= len(s): 
+                newx = self.pos[1]-1
+            else:
+                newx = self.pos[1]
+            self.pos = self.pos[0], max(newx, 0)
+            self.refresh_cursor()
+        elif cmd == "delete_line":
+            if not len(self.buffer): return
+            oldline = self.buffer[self.pos[0]]
+            del self.buffer[self.pos[0]]
+            if not self.buffer:
+                # should preserve at least one blank line
+                self.buffer =[""]
+            self.refresh()
+            # TODO: add a line delete operation
+            if self.pos[0] >= len(self.buffer):
+                y = len(self.buffer)-1
+            else:
+                y = self.pos[0]
+            x = min(self.pos[1], len(self.buffer[y])-1)
+            self.pos = y, max(x, 0)
+            self.refresh_cursor()
+        elif cmd == "replace_char":
+            line = self.buffer[self.pos[0]]
+            line = line[:self.pos[1]]+parameter+line[self.pos[1]+1:]
+            self.buffer[self.pos[0]] = line
+            self.refresh()
+            self.refresh_cursor()
+            # TODO: add replace operation
+ 
     def save_file(self):
         assert self.outfile is not None
         self.outfile.truncate(0)
@@ -611,12 +699,13 @@ class Editor(object):
     def handle_delete_char(self, ch):
         if (not self.editop or not self.editop.edit_type == "delete" 
             or (self.editop.backwards and ch==127) 
-            or (not self.editop.backwards and ch==8)):
+            or (not self.editop.backwards and ch==8)
+            or ch==120 or ch==88):
             self.start_new_char_edit("delete", self.pos)
-            if ch==8: 
+            if ch==8 or ch==88: 
                 self.editop.backwards = True
         y, x = self.pos
-        if ch==127:
+        if ch==127 or ch==120: # del or x
             if x == len(self.buffer[y]):
                 if y < len(self.buffer)-1: 
                     # delete the \n at the end of a line
@@ -629,7 +718,7 @@ class Editor(object):
                 char = self.buffer[y][x]
                 self.editop.append_edit(char)
                 self.buffer[y] = self.buffer[y][:x]+self.buffer[y][x+1:]
-        else: # backspace
+        else: # backspace or X
             if x==0:
                 if y > 0:
                     self.editop.append_edit("\n")
