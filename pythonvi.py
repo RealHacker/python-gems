@@ -168,7 +168,7 @@ class Editor(object):
         self.partial = ""
         self.status_line = "-- COMMAND --"
         self.commandline = ""
-        self.dirty = False
+        self.checkpoint = -1 # pointer into the editlist where save happens
         # render the initial screen
         self.refresh()
         self.refresh_command_line()
@@ -178,16 +178,18 @@ class Editor(object):
             if not self.do_command(ch):
                 break
 
+    @property
+    def dirty(self):
+        return self.editlist.cursor != self.checkpoint
+
     def commit_current_edit(self):
         if self.editop:
             self.editlist.commitEdit(self.editop)
-            self.dirty = True
             self.editop = None
 
     def start_new_char_edit(self, etype, pos):
         # check if old edit is committed
         if self.editop:
-            self.dirty = True
             self.editlist.commitEdit(self.editop)
         self.editop = EditOp(self, etype, "char", pos)
 
@@ -248,7 +250,7 @@ class Editor(object):
                     if cmd.startswith(":"):
                         cmd = cmd[1:]
                         # meaning this command has a number before it
-                        regex = re.compile(".*([0-9]+)$")
+                        regex = re.compile(".*?([0-9]+)$") # non-greedy
                         mo = regex.match(self.partial[:-1])
                         self.partial = ""
                         if mo:
@@ -272,23 +274,26 @@ class Editor(object):
             or (ch in (ord('h'), ord('j'), ord('k'), ord('l')) 
                 and self.mode=="command" and not self.command_editing))
 
-    def advance_word(self, s, idx):
+    def advance_word(self, s, idx, direction="forward"):
         wordchars = string.letters + string.digits + "_"
-        if idx >= len(s): return idx
+        if idx >= len(s) or idx <0: return idx
+        step = 1 if direction=="forward" else -1
         if s[idx] in wordchars:
-            while idx < len(s) and s[idx] in wordchars : idx += 1
+            while idx>=0 and idx < len(s) and s[idx] in wordchars : idx += step
         elif s[idx] == " ":
-            while idx < len(s) and s[idx] == " ": idx += 1
+            while idx>=0 and idx < len(s) and s[idx] == " ": idx += step
         else:
-            while idx < len(s) and s[idx] not in wordchars and s[idx] != " ": idx+=1
+            while id>=0 and idx < len(s) and s[idx] not in wordchars and s[idx] != " ": idx+=step
         return idx
 
-    def advance_term(self, s, idx):
-        while idx < len(s) and s[idx] != " ": idx +=1
+    def advance_term(self, s, idx, direction="forward"):
+        step = 1 if direction=="forward" else -1
+        while idx>=0 and idx < len(s) and s[idx] != " ": idx +=step
         return idx
 
-    def advance_spaces(self, s, idx):
-        while idx < len(s) and s[idx]==" ": idx+=1
+    def advance_spaces(self, s, idx, direction="forward"):
+        step = 1 if direction=="forward" else -1
+        while id>=0 and idx < len(s) and s[idx]==" ": idx+=step
         return idx
 
     def handle_command(self, ch):
@@ -437,8 +442,52 @@ class Editor(object):
             idx = self.advance_term(s, idx)
             self.pos = self.pos[0], max(idx-1, 0)
             self.refresh_cursor()
-        elif cmd == "word_start": pass
-        elif cmd == "term_start": pass
+        elif cmd == "word_start":
+            s = self.buffer[self.pos[0]]
+            idx = self.pos[1]-1
+            if idx < 0:
+                if self.pos[0]>0:
+                    # back up to last line and recurse
+                    lineno = self.pos[0]-1
+                    self.pos = lineno, len(self.buffer[lineno])
+                    self.handle_command(ch) 
+                return
+            if s[idx] == " ":
+                idx = self.advance_spaces(s, idx, "backwards")
+            # this is duplicate code, need a way to dedup
+            if idx < 0:
+                if self.pos[0]>0:
+                    # back up to last line and recurse
+                    lineno = self.pos[0]-1
+                    self.pos = lineno, len(self.buffer[lineno])
+                    self.handle_command(ch) 
+                return
+            idx = self.advance_word(s, idx, "backwards")
+            self.pos = self.pos[0], idx+1
+            self.refresh_cursor()
+        elif cmd == "term_start": 
+            s = self.buffer[self.pos[0]]
+            idx = self.pos[1]-1
+            if idx < 0:
+                if self.pos[0]>0:
+                    # back up to last line and recurse
+                    lineno = self.pos[0]-1
+                    self.pos = lineno, len(self.buffer[lineno])
+                    self.handle_command(ch) 
+                return
+            if s[idx] == " ":
+                idx = self.advance_spaces(s, idx, "backwards")
+            # this is duplicate code, need a way to dedup
+            if idx < 0:
+                if self.pos[0]>0:
+                    # back up to last line and recurse
+                    lineno = self.pos[0]-1
+                    self.pos = lineno, len(self.buffer[lineno])-1
+                    self.handle_command(ch) 
+                return
+            idx = self.advance_term(s, idx, "backwards")
+            self.pos = self.pos[0], idx+1
+            self.refresh_cursor()
         elif cmd == "undo": # for undo
             pos = self.editlist.get_pos()
             if not self.editlist.undo():
@@ -464,19 +513,62 @@ class Editor(object):
             self.commandline = ":"
             self.refresh_command_line()
 
+    def save_file(self):
+        assert self.outfile is not None
+        self.outfile.truncate(0)
+        # Seek is absolutely necessary as truncate does NOT modify file position
+        self.outfile.seek(0) 
+        for line in self.buffer:
+            self.outfile.write(line)
+            self.outfile.write("\n")
+        self.outfile.flush()
+        # save the editlist cursor
+        self.checkpoint = self.editlist.cursor
+
     def handle_editing_command(self, ch):
         if curses.ascii.isprint(ch):
             self.commandline += chr(ch)
             self.refresh_command_line()
+        elif ch==27: # ESC, back to command mode
+            self.command_editing = False
+            self.commandline = ""
+            self.refresh_command_line()
+            self.refresh_cursor()
+        #elif ch == 
         elif ch==10: # new line \n
             self.command_editing = False
             if self.commandline.startswith(":"):
-                commandline = self.commandline[1:]    
-                if commandline in ("q", "q!"):
+                commandline = self.commandline[1:].strip()
+                if commandline in ("q", "q!"): # handle quit commands
                     if commandline == "q" and self.dirty:
                         self.flash_status_line("--Unsaved Changes--")
                     else:
                         raise SystemExit()
+                elif commandline in ("w", "wq"): # handle write and write/quit without filename
+                    if self.outfile:
+                        self.save_file()
+                        if commandline == "wq":
+                            raise SystemExit()
+                        else:
+                            self.flash_status_line("--File saved--")
+                    else:
+                        self.flash_status_line("--Target file not specified--")
+                elif commandline.startswith("w ") or commandline.startswith("wq "):
+                    parts = commandline.split()
+                    if len(parts)>2:
+                        self.flash_status_line("--Only one file name allowed--")
+                    else:
+                        cmd, filename = parts
+                        try:
+                            self.outfile = open(filename, "w")
+                        except Exception as e:
+                            self.flash_status_line("--File open fails: %s--"%e)
+                        else:
+                            self.save_file()
+                            if cmd == "wq":
+                                raise SystemExit()
+                            else:
+                                self.flash_status_line("--File saved--")
             elif self.commandline.startswith("/"):pass
             elif self.commandline.startswith("?"):pass
             self.refresh_cursor()
@@ -579,7 +671,6 @@ class Editor(object):
                     self.pos = y, x+1
             self.refresh()
             self.refresh_cursor()
-
         elif ch==127 or ch==8: # DEL or BACKSPACE
             self.handle_delete_char(ch)
         elif self.is_direction_char(ch):
@@ -697,7 +788,7 @@ def main():
 
     if openfile:    
         f = open(openfile, "r+")
-        buf = f.readlines()
+        buf = [line[:-1] if line.endswith('\n') else line for line in f.readlines()]
     else:
         f = None
         buf = [""]
