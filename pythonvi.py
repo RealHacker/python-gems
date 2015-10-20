@@ -169,6 +169,8 @@ class Editor(object):
         self.status_line = "-- COMMAND --"
         self.commandline = ""
         self.checkpoint = -1 # pointer into the editlist where save happens
+        self.searchpos = (0,0)
+        self.searchkw = ""
         # render the initial screen
         self.refresh()
         self.refresh_command_line()
@@ -238,7 +240,9 @@ class Editor(object):
             ("~", "switch_case"),
             ("x", "delete_char"),
             ("X", "delete_last_char"),
-            
+            ("%", "match_pair"),
+            ("/", "search_mode"),
+            ("?", "reverse_search_mode"),
         ]
         chr_cmd_map = dict(chr_cmd_tuples)
         meta_cmd_map = {
@@ -309,6 +313,33 @@ class Editor(object):
         step = 1 if direction=="forward" else -1
         while idx>=0 and idx < len(s) and s[idx]==" ": idx+=step
         return idx
+
+    def advance_one_char(self, pos, direction="forward"):
+        y, x = pos
+        if direction=="forward":
+            x = x+1
+            if x >= len(self.buffer[y]):
+                if y==len(self.buffer)-1:
+                    return None
+                else:
+                    y+=1
+                    while len(self.buffer[y])==0: y+=1
+                    if y>=len(self.buffer): return None
+                    else: return y, 0
+            else:
+                return y, x
+        else:
+            x = x - 1
+            if x < 0:
+                if y == 0:
+                    return None
+                else:
+                    y -= 1
+                    while len(self.buffer[y])==0: y-=1
+                    if y<0: return None
+                    else: return y, len(self.buffer[y])-1
+            else:
+                return y, x
 
     def handle_command(self, ch):
         if self.is_direction_char(ch):
@@ -522,9 +553,9 @@ class Editor(object):
                 self.pos = self.editlist.get_pos()
                 self.refresh()
                 self.refresh_cursor()
-        elif cmd=="command_edit_mode":
+        elif cmd in ("command_edit_mode", "search_mode", "reverse_search_mode"):
             self.command_editing = True
-            self.commandline = ":"
+            self.commandline = chr(ch)
             self.refresh_command_line()
         elif cmd == "switch_case":
             line = self.buffer[self.pos[0]]
@@ -578,14 +609,17 @@ class Editor(object):
             self.pos = self.pos[0], max(newx, 0)
             self.refresh_cursor()
         elif cmd == "delete_line":
-            if not len(self.buffer): return
+            if not len(self.buffer) or (len(self.buffer)==1 and not self.buffer[0]): return
             oldline = self.buffer[self.pos[0]]
             del self.buffer[self.pos[0]]
             if not self.buffer:
                 # should preserve at least one blank line
                 self.buffer =[""]
             self.refresh()
-            # TODO: add a line delete operation
+            # add a line delete operation
+            self.editop = EditOp(self, "delete", "line", self.pos)
+            self.editop.value = oldline
+            self.commit_current_edit()
             if self.pos[0] >= len(self.buffer):
                 y = len(self.buffer)-1
             else:
@@ -595,12 +629,42 @@ class Editor(object):
             self.refresh_cursor()
         elif cmd == "replace_char":
             line = self.buffer[self.pos[0]]
+            oldchar = line[self.pos[1]]
             line = line[:self.pos[1]]+parameter+line[self.pos[1]+1:]
             self.buffer[self.pos[0]] = line
             self.refresh()
             self.refresh_cursor()
-            # TODO: add replace operation
- 
+            # add replace operation
+            self.editop = EditOp(self, "replace", "char", self.pos)
+            self.editop.value = oldchar
+            self.editop.replacement = parameter
+            self.commit_current_edit()
+        elif cmd == "match_pair":
+            chrs = "()[]{}"
+            matcher = {"(":")", ")":"(", "[":"]", "]":"[","{":"}", "}":"{"}
+            char = self.buffer[self.pos[0]][self.pos[1]]
+            if char not in chrs: return
+            if char in "([{":
+                direction = "forward"
+            else:
+                direction = "backward"
+            pos = self.pos
+            depth = 1
+            while True:
+                pos = self.advance_one_char(pos, direction)
+                # import pdb;pdb.set_trace()
+                if not pos:
+                    self.flash_status_line("--No matching symbol found--")
+                    break
+                current = self.buffer[pos[0]][pos[1]]
+                if current == char: depth+=1
+                elif current == matcher[char]: 
+                    depth -=1
+                    if depth == 0:
+                        self.pos = pos
+                        self.refresh_cursor()
+                        break
+
     def save_file(self):
         assert self.outfile is not None
         self.outfile.truncate(0)
@@ -657,9 +721,63 @@ class Editor(object):
                                 raise SystemExit()
                             else:
                                 self.flash_status_line("--File saved--")
-            elif self.commandline.startswith("/"):pass
-            elif self.commandline.startswith("?"):pass
+            elif self.commandline.startswith("/") or self.commandline.startswith("?"):
+                keyword = self.commandline[1:]
+                try:
+                    keyword_regex = re.compile(keyword)
+                except:
+                    self.flash_status_line("--Invalid search pattern string--")
+                    return
+                self.searchpos = self.pos
+                self.searchkw = keyword_regex
+                if self.commandline.startswith("/"):
+                    self.searchdir = "forward"
+                else:
+                    self.searchdir = "backward"
+                pos = self.search_for_keyword(self.searchdir)
+                if not pos:
+                    self.flash_status_line("--Search pattern not found--")
+                    return
+                self.pos = pos
+                self.refresh_cursor()
+            self.refresh_command_line()
             self.refresh_cursor()
+
+    def search_for_keyword(self, direction="forward"):
+        # return a position where the keyword is found, or return None if not found
+        y, x = self.searchpos
+        # First make sure the start_pos is valid position, if invalid, fall back to 0,0
+        if y>=len(self.buffer) or (x>=len(self.buffer[y]) and x!=0):
+            y, x =  0, 0
+        step = 1 if direction=="forward" else -1
+        visited = []
+        while True: # iterate over the lines
+            visited.append((y, x))
+            line = self.buffer[y][x:] if direction=="forward" else self.buffer[y][:x]
+            if line:
+                if direction == "forward":
+                    mo = self.searchkw.search(line) # left to right
+                    if mo:
+                        self.searchpos = y, mo.end()
+                        if self.searchpos[1] == len(self.buffer[y]):
+                            self.searchpos = (y+step)%len(self.buffer), 0
+                        return (y, mo.start())
+                else: # backward
+                    # to search right to left for regex: http://stackoverflow.com/questions/33232729/how-to-search-for-the-last-occurrence-of-a-regular-expression-in-a-string-in-pyt
+                    starts = [mo.start() for mo in self.searchkw.finditer(line)]
+                    if starts:
+                        self.searchpos = y, starts[-1]
+                        return (y, starts[-1])
+            y = y+step
+            if y >=len(self.buffer): 
+                y = 0
+                self.flash_status_line("--Search hit BOTTOM, continuing at TOP--")
+            elif y<0:
+                y = len(self.buffer)-1
+                self.flash_status_line("--Search hit TOP, continuing at BOTTOM--")
+            x = 0 if direction=="forward" else len(self.buffer[y])
+            if (y, x) in visited: # revisit a visited position, meaning the doc has been scanned in full
+                return None
 
     def handle_cursor_move(self, ch):
         # finish the last edit if exists
@@ -717,6 +835,7 @@ class Editor(object):
             else:
                 char = self.buffer[y][x]
                 self.editop.append_edit(char)
+                if ch == 120: self.commit_current_edit()
                 self.buffer[y] = self.buffer[y][:x]+self.buffer[y][x+1:]
         else: # backspace or X
             if x==0:
@@ -730,6 +849,7 @@ class Editor(object):
             else:
                 char = self.buffer[y][x-1]
                 self.editop.append_edit(char)
+                if ch == 88: self.commit_current_edit()
                 self.buffer[y] = self.buffer[y][:x-1]+self.buffer[y][x:]
                 self.pos = y, x-1
         self.refresh()
