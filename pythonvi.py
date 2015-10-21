@@ -186,6 +186,7 @@ class Editor(object):
         self.searchkw = None
         self.searchdir = "forward"
         self.clipboard = ClipBoard()
+        self.showlineno = False
         # render the initial screen
         self.refresh()
         self.refresh_command_line()
@@ -869,6 +870,14 @@ class Editor(object):
                                 raise SystemExit()
                             else:
                                 self.flash_status_line("--File saved--")
+                elif commandline in ("nu", "nonu"):
+                    self.showlineno = (commandline=="nu")
+                    if self.showlineno:
+                        self.maxx = self.scr.getmaxyx()[1] - self.get_lineno_width()
+                    else:
+                        self.maxx = self.scr.getmaxyx()[1]
+                    self.refresh()
+                    self.refresh_cursor()
                 else:
                     self.flash_status_line("-- Command not recognized --")
             elif self.commandline.startswith("/") or self.commandline.startswith("?"):
@@ -1065,6 +1074,12 @@ class Editor(object):
         self.scr.move(y,0)
         self.scr.clrtoeol()
 
+    def get_lineno_width(self):
+        if self.showlineno:
+            return len(str(len(self.buffer)))
+        else:
+            return 0
+
     def refresh_cursor(self):
         # move the cursor position based on self.pos
         # when cursor moves beyond top of screen
@@ -1073,7 +1088,7 @@ class Editor(object):
             self.refresh()
         screen_y = sum(self.line_heights[:self.pos[0]-self.topline])
         screen_y += self.pos[1]/self.maxx
-        screen_x = self.pos[1]%self.maxx
+        screen_x = self.pos[1]%self.maxx + self.get_lineno_width()
         writelog("pos", self.pos[0], self.pos[1])
         writelog(screen_y, screen_x)
 
@@ -1111,10 +1126,12 @@ class Editor(object):
         _y = 0
         self.line_heights = []
         self.screen_lines = 0
-        for line in self.buffer[self.topline:]:
+        for i, line in enumerate(self.buffer[self.topline:]):
             singleline = line[:self.maxx]
             self.clear_scr_line(_y)
-            self.scr.addstr(_y, 0, singleline)
+            if self.showlineno:
+                self.scr.addstr(_y, 0, str(self.topline+i+1).rjust(self.get_lineno_width()), curses.A_REVERSE)
+            self.scr.addstr(_y, self.get_lineno_width(), singleline)
             idx = self.maxx
             line_height = 1
             self.screen_lines += 1
@@ -1125,7 +1142,7 @@ class Editor(object):
                 while idx<len(line):
                     singleline = line[idx:idx+self.maxx]
                     self.clear_scr_line(_y)
-                    self.scr.addstr(_y, 0, singleline)
+                    self.scr.addstr(_y, self.get_lineno_width(), singleline)
                     idx += self.maxx
                     _y+=1
                     line_height += 1
@@ -1171,6 +1188,9 @@ def main():
         editor.outfile = open("before_crash_text", "w")
         editor.save_file()
         print "Sorry, pythonvi crashed, your text has been saved in before_crash_text in current directory."
+    finally:
+        if editor.outfile: editor.outfile.close()
+        
 
 if __name__ == "__main__":
     main() 
