@@ -288,6 +288,7 @@ class Editor(object):
             curses.KEY_END: "goto_line_end",
             curses.KEY_PPAGE: "prev_page",
             curses.KEY_NPAGE:"next_page",
+            127: "backup_char", # on Mac, backspace key doesn't map to curses.KEY_BACKSPACE
         }
 
         if curses.ascii.isprint(ch):
@@ -318,7 +319,7 @@ class Editor(object):
                         self.partial = ""
                         return cmd
         else:
-            # when meet a meta command, clear the partial
+            # when meet a meta key, clear the partial command
             self.partial = ""
             if ch in meta_cmd_map:
                 return meta_cmd_map[ch]
@@ -830,12 +831,14 @@ class Editor(object):
         if curses.ascii.isprint(ch):
             self.commandline += chr(ch)
             self.refresh_command_line()
-        elif ch==27: # ESC, back to command mode
+        elif ch==curses.KEY_BACKSPACE or ch==127:
+            self.commandline = self.commandline[:-1]
+            self.refresh_command_line()
+        elif ch==27 or ch==curses.ascii.ETX: # ESC, back to command mode
             self.command_editing = False
             self.commandline = ""
             self.refresh_command_line()
             self.refresh_cursor()
-        #elif ch == 
         elif ch==10: # new line \n
             self.command_editing = False
             if self.commandline.startswith(":"):
@@ -1045,7 +1048,7 @@ class Editor(object):
                     self.pos = y, x+1
             self.refresh()
             self.refresh_cursor()
-        elif ch==curses.KEY_DC or ch==curses.KEY_BACKSPACE: # DEL or BACKSPACE
+        elif ch in (curses.KEY_DC, curses.KEY_BACKSPACE, 127): # DEL or BACKSPACE
             self.handle_delete_char(ch)
         elif self.is_direction_char(ch):
             self.handle_cursor_move(ch)
@@ -1055,7 +1058,7 @@ class Editor(object):
         elif ch==curses.KEY_END:
             self.pos = self.pos[0], len(self.buffer[self.pos[0]]) if self.buffer[self.pos[0]] else 0
             self.refresh_cursor()
-        elif ch==27: # ESC, to exit editing mode
+        elif ch==27 or ch==curses.ascii.ETX: # ESC, to exit editing mode
             self.mode = "command"
             self.command_editing = False
             self.partial = ""
@@ -1089,8 +1092,6 @@ class Editor(object):
         screen_y = sum(self.line_heights[:self.pos[0]-self.topline])
         screen_y += self.pos[1]/self.maxx
         screen_x = self.pos[1]%self.maxx + self.get_lineno_width()
-        writelog("pos", self.pos[0], self.pos[1])
-        writelog(screen_y, screen_x)
 
         if screen_y >= self.maxy-1 and self.topline<len(self.buffer)-1:
             # if the cursor is beyond the bottom of screen, scroll down 1 line and retry
