@@ -93,7 +93,7 @@ GRAVITY = 0.2
 
 def position_to_sector(pos):
 	x, y, z = pos
-	xx, yy = int(round(x)), int(round(y))
+	xx, yy = int(round(x))/SECTOR_SIZE, int(round(y))/SECTOR_SIZE
 	return xx, yy
 
 class Game(ShowBase):
@@ -103,12 +103,13 @@ class Game(ShowBase):
 		self.block_nodes = {}
 		self.sectors = set()
 		self.sector_blocks = {}
-		self.position = (0,0,0)
+		self.position = (0,0,1)
 		self.lookat = [0, 0] # horizontal and vertial camera direction
 		
 		self.flying = False
 		self.vspeed = 0
 		self.move_direction= [0,0]
+		# mouse positions
 		self.mx = None
 		self.my = None
 
@@ -166,7 +167,7 @@ class Game(ShowBase):
 		self.flying = not self.flying
 
 	def jump(self):
-		if self.vspeed ==0:
+		if self.vspeed == 0:
 			self.vspeed = self.MOVE_SPEED
 
 	def add_tasks(self):
@@ -200,6 +201,7 @@ class Game(ShowBase):
 			y_speed = hspeed * math.sin(move_x)
 			newpos = self.position[0]+x_speed, self.position[1]+y_speed, self.position[2]+hspeed
 			self.position = self.detect_collision(newpos)
+			# TODO: if cross sector, render sectors
 		# second check if dropping when not flying
 		if not self.flying:
 			newpos = self.position[0], self.position[1], self.position[2]+self.vspeed
@@ -224,11 +226,16 @@ class Game(ShowBase):
 					self.lookat[1] = -90
 				self.update_camera()
 
+	def add_block(self, pos, tex_idx):
+		self.world[pos] = tex_idx
+		sector = position_to_sector(pos)
+		self.sector_blocks.setdefault(sector, []).append(pos)
+
 	def generate_initial_world(self):
 		for x in range(-WORLD_SIZE, WORLD_SIZE+1):
 			for y in range(-WORLD_SIZE, WORLD_SIZE+1):
-				self.world[(x, y, -2)] = 0 # a layer of stones
-				self.world[(x, y, -1)] = 3 # a layer of grass
+				self.add_block((x, y, -2), 0) # a layer of stones
+				self.add_block((x, y, -1), 3) # a layer of grass
 
 		for _ in range(20):
 			# generate random hills
@@ -240,9 +247,7 @@ class Game(ShowBase):
 			for i in range(height):
 				for m in range(hillx-size, hillx+size):
 					for n in range(hilly-size, hilly+size):
-						self.world[(m, n, i)] = texture
-						sector = position_to_sector((m, n, i))
-						self.sector_blocks.setdefault(sector, []).append((m, n, i))
+						self.add_block((m,n,i), texture)
 				size -= 1
 				if size <= 0: break
 
