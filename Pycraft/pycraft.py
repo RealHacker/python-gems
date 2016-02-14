@@ -2,10 +2,17 @@
 from panda3d.core import GeomVertexFormat, GeomVertexData
 from panda3d.core import Geom, GeomTriangles, GeomVertexWriter
 from panda3d.core import Texture, GeomNode
+from panda3d.core import LVector3, Vec3
 from direct.showbase.ShowBase import ShowBase
 import random, math
 
+
 # helper functions to draw a primitive cube
+def normalized(*args):
+    myVec = LVector3(*args)
+    myVec.normalize()
+    return myVec
+
 def makeSquare(x1, y1, z1, x2, y2, z2):
     format = GeomVertexFormat.getV3n3cpt2()
     vdata = GeomVertexData('square', format, Geom.UHDynamic)
@@ -99,6 +106,7 @@ def position_to_sector(pos):
 class Game(ShowBase):
 	textures = ["STONE", "BRICK", "SAND", "GRASS"]
 	def __init__(self):
+		ShowBase.__init__(self)
 		self.world = {}
 		self.block_nodes = {}
 		self.sectors = set()
@@ -163,6 +171,9 @@ class Game(ShowBase):
 		# remove the node for the block
 		pass
 
+	def create_block(self):
+		pass
+
 	def toggle_flying(self):
 		self.flying = not self.flying
 
@@ -177,7 +188,7 @@ class Game(ShowBase):
 	def detect_collision(self, pos):
 		return pos
 
-	def move_task(self):
+	def move_task(self, task):
 		# first check if moving in any direction
 		if any(self.move_direction):
 			radian = math.atan2(self.move_direction[1], self.move_direction[0])
@@ -208,7 +219,7 @@ class Game(ShowBase):
 			self.position = self.detect_collision(newpos)
 			self.vspeed -= GRAVITY
 
-	def mouse_task(self):
+	def mouse_task(self, task):
 		mw = self.mouseWatcherNode
 		if mw.hasMouse():
 			mpos = mw.getMouse()  # get the mouse position
@@ -254,7 +265,7 @@ class Game(ShowBase):
 	def update_camera(self):
 		x, y, z = self.position
 		self.camera.setPos(x, y, z)
-		self.camera.setHpr(*self.lookat)
+		self.camera.setHpr(Vec3(self.lookat[0], self.lookat[1], 0))
 
 	def show_block(self, x, y, z, texture):
 		cube = makeCube()
@@ -300,7 +311,8 @@ class Game(ShowBase):
 		self.sectors = new_sectors
 
 	def get_texture(self, idx):
-		pass
+		myTexture = self.loader.loadTexture("texture.png")
+		return myTexture
 
 	def load_textures(self):
 		pass
