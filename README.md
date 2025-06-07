@@ -1,5 +1,7 @@
 # Python Gems #
 ----------
+[![Powered by DartNode](https://dartnode.com/branding/DN-Open-Source-sm.png)](https://dartnode.com "Powered by DartNode - Free VPS for Open Source")
+
 **A collection of python scripts that solve interesting problems.**
 
 - async_sched.py - *A asynchronous scheduler implemented using coroutines, in principle similar to Tornado's ioloop*
